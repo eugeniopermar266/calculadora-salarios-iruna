@@ -341,6 +341,35 @@ function GestorPerfiles({ tabId, datosActuales, onCargarPerfil }) {
   const STORAGE_PREFIX = `perfil_unif_`;
   const STORAGE_PREFIXES_LEGACY = [`perfil_40h_`, `perfil_45h_`];
 
+  // Adaptador: usa window.storage si existe (artefactos Claude.ai),
+  // si no, usa localStorage del navegador (Vercel/local/etc.)
+  const storage = (() => {
+    if (typeof window !== "undefined" && window.storage) return window.storage;
+    return {
+      list: async (prefix) => {
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith(prefix)) keys.push(k);
+        }
+        return { keys };
+      },
+      get: async (key) => {
+        const value = localStorage.getItem(key);
+        if (value === null) throw new Error("Not found");
+        return { value };
+      },
+      set: async (key, value) => {
+        localStorage.setItem(key, value);
+        return { ok: true };
+      },
+      delete: async (key) => {
+        localStorage.removeItem(key);
+        return { ok: true };
+      },
+    };
+  })();
+
   useEffect(() => {
     (async () => {
       try {
@@ -348,13 +377,13 @@ function GestorPerfiles({ tabId, datosActuales, onCargarPerfil }) {
         const todasLasKeys = [];
         for (const prefix of todosPrefijos) {
           try {
-            const res = await window.storage.list(prefix);
+            const res = await storage.list(prefix);
             if (res && res.keys) todasLasKeys.push(...res.keys);
           } catch (e) { /* ignorar errores parciales */ }
         }
         const lista = await Promise.all(todasLasKeys.map(async k => {
           try {
-            const d = await window.storage.get(k);
+            const d = await storage.get(k);
             const data = JSON.parse(d.value);
             return { key: k, ...data };
           } catch { return null; }
@@ -376,7 +405,7 @@ function GestorPerfiles({ tabId, datosActuales, onCargarPerfil }) {
     const key = `${STORAGE_PREFIX}${Date.now()}_${nombre.replace(/[^a-zA-Z0-9]/g,"_").slice(0,40)}`;
     const payload = { nombre, tabId, timestamp: Date.now(), datos: datosActuales };
     try {
-      await window.storage.set(key, JSON.stringify(payload));
+      await storage.set(key, JSON.stringify(payload));
       const nuevoPerfil = { key, ...payload };
       setPerfiles(prev => [nuevoPerfil, ...prev.filter(p => p.key !== key)]);
       setNombrePerfil("");
@@ -398,7 +427,7 @@ function GestorPerfiles({ tabId, datosActuales, onCargarPerfil }) {
     e.stopPropagation();
     if (!confirm(`¿Eliminar "${perfil.nombre}"?`)) return;
     try {
-      await window.storage.delete(perfil.key);
+      await storage.delete(perfil.key);
       setPerfiles(prev => prev.filter(p => p.key !== perfil.key));
       showMsg("✓ Eliminado");
     } catch (err) {
