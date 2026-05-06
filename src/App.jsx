@@ -1,4 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, createContext, useContext } from "react";
+
+// Context para que componentes anidados accedan al usuario actual
+const UsuarioContext = createContext(null);
 
 // ─── LOGOS ───────────────────────────────────────────────────────────────────
 // LOGO_B64 (Canarias): placeholder SVG sencillo. Reemplaza esta constante por
@@ -1564,6 +1567,9 @@ function DocumentoImprimible({
 
 
 function App45() {
+  // Usuario actual de la sesión (para mostrar autor en exports)
+  const usuarioSesion = useContext(UsuarioContext);
+
   const [proyecto,         setProyecto]       = useState("");
   const [productora,       setProductora]     = useState("");
   const [logoEmpresa,      setLogoEmpresa]    = useState("bizkaia");
@@ -1719,6 +1725,10 @@ function App45() {
     const lines = [];
 
     lines.push(["CALCULADORA SALARIAL · 45 HORAS"].join(sep));
+    if (usuarioSesion) {
+      const fechaGen = new Date().toLocaleString("es-ES");
+      lines.push(["Generado por", `${usuarioSesion.nombre} · ${fechaGen}`].join(sep));
+    }
     lines.push([""].join(sep));
     lines.push(["Proyecto", proyecto || "—"].join(sep));
     lines.push(["Productora", productora || "—"].join(sep));
@@ -1892,6 +1902,16 @@ function App45() {
     line-height: 1.5;
   }
   .info b { color: #b8864a; }
+  .autor-box {
+    text-align: right;
+    font-size: 9px;
+    color: #888;
+    padding: 4px 0;
+    margin-bottom: 8px;
+    border-bottom: 1px dotted #d0ccc6;
+    letter-spacing: 0.05em;
+  }
+  .autor-box b { color: #1a1a1a; }
   @media print {
     .toolbar, .info { display: none !important; }
     body { padding: 0; }
@@ -1909,6 +1929,7 @@ function App45() {
   Pulsa <b>"Imprimir / Guardar PDF"</b> y, en el diálogo del navegador, elige <b>"Guardar como PDF"</b> como destino.<br>
   <b>Ajustes recomendados:</b> Márgenes Por defecto · Escala Predeterminado · Activa "Gráficos en segundo plano".
 </div>
+${usuarioSesion ? `<div class="autor-box">Generado por <b>${usuarioSesion.nombre}</b> · ${new Date().toLocaleString("es-ES")}</div>` : ""}
 ${docHTML}
 </body>
 </html>`;
@@ -2665,32 +2686,129 @@ ${docHTML}
 }
 
 
-// ─── PROTECCIÓN POR CONTRASEÑA ───────────────────────────────────────────
-// CAMBIA AQUÍ LA CONTRASEÑA cuando quieras (línea de abajo).
-// Tras cambiarla, todos los usuarios tendrán que volver a introducirla.
-const PASSWORD = "IRU26BEB";
 
-// Clave que se guarda en localStorage cuando aciertas. Si cambias la PASSWORD
-// arriba, cambia también este número (1, 2, 3...) para forzar a que todos
-// vuelvan a hacer login con la nueva.
-const AUTH_KEY = "calc_auth_v1";
+// ═══════════════════════════════════════════════════════════════════════
+// SUPABASE: AUTH + GESTIÓN DE USUARIOS
+// ═══════════════════════════════════════════════════════════════════════
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+const AUTH_KEY = "calc_user_v1";
+
+// --- Cliente REST ligero a Supabase (sin librería externa) ---
+async function supabaseFetch(path, options = {}) {
+  const url = `${SUPABASE_URL}/rest/v1/${path}`;
+  const headers = {
+    "apikey": SUPABASE_ANON_KEY,
+    "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+    "Content-Type": "application/json",
+    ...(options.headers || {}),
+  };
+  const res = await fetch(url, { ...options, headers });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`Supabase error ${res.status}: ${txt}`);
+  }
+  // DELETE/PATCH a veces devuelven cuerpo vacío
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+// Login: busca por nombre+pin
+async function loginUsuario(nombre, pin) {
+  const params = new URLSearchParams({
+    nombre: `eq.${nombre}`,
+    pin: `eq.${pin}`,
+    select: "id,nombre,es_admin",
+  });
+  const data = await supabaseFetch(`usuarios?${params}`);
+  return Array.isArray(data) && data.length === 1 ? data[0] : null;
+}
+
+// Lista de nombres (para dropdown)
+async function listarNombres() {
+  const data = await supabaseFetch(`usuarios?select=nombre&order=nombre.asc`);
+  return data.map(u => u.nombre);
+}
+
+// Lista completa (admin)
+async function listarUsuariosAdmin(adminPin) {
+  const data = await supabaseFetch(`usuarios?select=*&order=nombre.asc`, {
+    headers: { "x-admin-pin": adminPin },
+  });
+  return data;
+}
+
+async function crearUsuario(adminPin, nombre, pin, esAdmin) {
+  return supabaseFetch(`usuarios`, {
+    method: "POST",
+    headers: { "x-admin-pin": adminPin, "Prefer": "return=representation" },
+    body: JSON.stringify({ nombre, pin, es_admin: esAdmin }),
+  });
+}
+
+async function actualizarUsuario(adminPin, id, cambios) {
+  return supabaseFetch(`usuarios?id=eq.${id}`, {
+    method: "PATCH",
+    headers: { "x-admin-pin": adminPin, "Prefer": "return=representation" },
+    body: JSON.stringify(cambios),
+  });
+}
+
+async function borrarUsuario(adminPin, id) {
+  return supabaseFetch(`usuarios?id=eq.${id}`, {
+    method: "DELETE",
+    headers: { "x-admin-pin": adminPin },
+  });
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// PANTALLA DE LOGIN
+// ═══════════════════════════════════════════════════════════════════════
 
 function PantallaLogin({ onAcierto }) {
-  const [valor, setValor] = useState("");
+  const [nombres, setNombres] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [errorCarga, setErrorCarga] = useState(null);
+  const [nombre, setNombre] = useState("");
+  const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
   const [intentos, setIntentos] = useState(0);
-  const [mostrarPwd, setMostrarPwd] = useState(false);
+  const [mostrarPin, setMostrarPin] = useState(false);
+  const [verificando, setVerificando] = useState(false);
 
-  const intentar = () => {
-    if (valor === PASSWORD) {
-      try { localStorage.setItem(AUTH_KEY, "ok"); } catch {}
-      onAcierto();
-    } else {
-      setError(true);
-      setIntentos(n => n + 1);
-      setValor("");
-      setTimeout(() => setError(false), 600);
+  useEffect(() => {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      setErrorCarga("Supabase no configurado. Revisa las variables de entorno en Vercel.");
+      setCargando(false);
+      return;
     }
+    listarNombres()
+      .then(lista => { setNombres(lista); setCargando(false); })
+      .catch(err => { setErrorCarga(err.message); setCargando(false); });
+  }, []);
+
+  const intentar = async () => {
+    if (!nombre || !pin) { setError(true); setTimeout(() => setError(false), 600); return; }
+    setVerificando(true);
+    try {
+      const user = await loginUsuario(nombre, pin);
+      if (user) {
+        try {
+          localStorage.setItem(AUTH_KEY, JSON.stringify({
+            id: user.id, nombre: user.nombre, es_admin: user.es_admin, pin
+          }));
+        } catch {}
+        onAcierto({ id: user.id, nombre: user.nombre, es_admin: user.es_admin, pin });
+      } else {
+        setError(true); setIntentos(n => n + 1); setPin("");
+        setTimeout(() => setError(false), 600);
+      }
+    } catch (err) {
+      setErrorCarga("Error verificando: " + err.message);
+    }
+    setVerificando(false);
   };
 
   return (
@@ -2720,7 +2838,6 @@ function PantallaLogin({ onAcierto }) {
             background: "#c8a96e", borderRadius: 12,
             color: "#1a1a1a", fontSize: 28, fontWeight: 700,
             lineHeight: "56px", marginBottom: 14,
-            letterSpacing: "0",
           }}>B</div>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#1a1a1a", letterSpacing: "0.18em", textTransform: "uppercase" }}>
             Calculadora Salarios
@@ -2730,77 +2847,103 @@ function PantallaLogin({ onAcierto }) {
           </div>
         </div>
 
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: "block", fontSize: 9, color: "#666", letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 8 }}>
-            Contraseña
-          </label>
-          <div style={{ position: "relative" }}>
-            <input
-              type={mostrarPwd ? "text" : "password"}
-              value={valor}
-              onChange={e => setValor(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && intentar()}
-              autoFocus
-              autoComplete="off"
-              style={{
-                width: "100%", padding: "12px 44px 12px 14px", fontSize: 16,
-                border: `1px solid ${error ? "#a04545" : "#c0bcb5"}`,
-                borderRadius: 6, background: "#fff", boxSizing: "border-box",
-                fontFamily: "'Courier New', monospace",
-                color: "#1a1a1a",
-                letterSpacing: mostrarPwd ? "normal" : "0.2em",
-                outline: "none",
-              }}
-            />
+        {cargando ? (
+          <div style={{ textAlign: "center", padding: 20, color: "#888", fontSize: 11 }}>
+            Cargando usuarios...
+          </div>
+        ) : errorCarga ? (
+          <div style={{ padding: 12, background: "rgba(160,69,69,0.1)", border: "1px solid #a04545", borderRadius: 6, color: "#a04545", fontSize: 11 }}>
+            ✕ {errorCarga}
+          </div>
+        ) : (
+          <>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 9, color: "#666", letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 8 }}>
+                Usuario
+              </label>
+              <select
+                value={nombre}
+                onChange={e => setNombre(e.target.value)}
+                style={{
+                  width: "100%", padding: "12px 14px", fontSize: 16,
+                  border: "1px solid #c0bcb5", borderRadius: 6, background: "#fff",
+                  boxSizing: "border-box", fontFamily: "'Courier New', monospace",
+                  color: "#1a1a1a", outline: "none",
+                }}
+              >
+                <option value="">— Selecciona tu usuario —</option>
+                {nombres.map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 9, color: "#666", letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 8 }}>
+                PIN
+              </label>
+              <div style={{ position: "relative" }}>
+                <input
+                  type={mostrarPin ? "text" : "password"}
+                  value={pin}
+                  onChange={e => setPin(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && intentar()}
+                  inputMode="numeric"
+                  autoComplete="off"
+                  style={{
+                    width: "100%", padding: "12px 44px 12px 14px", fontSize: 16,
+                    border: `1px solid ${error ? "#a04545" : "#c0bcb5"}`,
+                    borderRadius: 6, background: "#fff", boxSizing: "border-box",
+                    fontFamily: "'Courier New', monospace", color: "#1a1a1a",
+                    letterSpacing: mostrarPin ? "normal" : "0.2em", outline: "none",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setMostrarPin(v => !v)}
+                  style={{
+                    position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
+                    background: "transparent", border: "none", cursor: "pointer",
+                    padding: 8, color: "#666",
+                  }}
+                >
+                  {mostrarPin ? (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                      <line x1="1" y1="1" x2="23" y2="23"/>
+                    </svg>
+                  ) : (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                      <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                  )}
+                </button>
+              </div>
+              {error && (
+                <div style={{ fontSize: 10, color: "#a04545", marginTop: 8, letterSpacing: "0.08em" }}>
+                  ✕ Usuario o PIN incorrectos {intentos > 2 ? `(${intentos} intentos)` : ""}
+                </div>
+              )}
+            </div>
+
             <button
-              type="button"
-              onClick={() => setMostrarPwd(v => !v)}
-              aria-label={mostrarPwd ? "Ocultar contraseña" : "Mostrar contraseña"}
+              onClick={intentar}
+              disabled={verificando}
               style={{
-                position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
-                background: "transparent", border: "none", cursor: "pointer",
-                padding: 8, display: "flex", alignItems: "center", justifyContent: "center",
-                color: "#666",
+                width: "100%", padding: "12px 16px",
+                background: verificando ? "#666" : "#1a1a1a", color: "#f0ede8",
+                border: "none", borderRadius: 6, cursor: verificando ? "wait" : "pointer",
+                fontSize: 11, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase",
+                fontFamily: "'Courier New', monospace",
               }}
             >
-              {mostrarPwd ? (
-                // Ojo tachado (ocultar)
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                  <line x1="1" y1="1" x2="23" y2="23"/>
-                </svg>
-              ) : (
-                // Ojo abierto (mostrar)
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                  <circle cx="12" cy="12" r="3"/>
-                </svg>
-              )}
+              {verificando ? "Verificando..." : "Acceder"}
             </button>
-          </div>
-          {error && (
-            <div style={{ fontSize: 10, color: "#a04545", marginTop: 8, letterSpacing: "0.08em" }}>
-              ✕ Contraseña incorrecta {intentos > 2 ? `(${intentos} intentos)` : ""}
-            </div>
-          )}
-        </div>
-
-        <button
-          onClick={intentar}
-          style={{
-            width: "100%", padding: "12px 16px",
-            background: "#1a1a1a", color: "#f0ede8",
-            border: "none", borderRadius: 6, cursor: "pointer",
-            fontSize: 11, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase",
-            fontFamily: "'Courier New', monospace",
-          }}
-        >
-          Acceder
-        </button>
+          </>
+        )}
 
         <div style={{ marginTop: 24, paddingTop: 16, borderTop: "1px solid #d8d4ce", textAlign: "center" }}>
           <div style={{ fontSize: 9, color: "#aaa", letterSpacing: "0.1em" }}>
-            Si no tienes la contraseña, contacta con el administrador
+            Si no tienes acceso, contacta con el administrador
           </div>
         </div>
       </div>
@@ -2809,31 +2952,204 @@ function PantallaLogin({ onAcierto }) {
 }
 
 
-// ─── EXPORT DEFAULT ──────────────────────────────────────────────────────
-export default function App() {
-  const [autenticado, setAutenticado] = useState(false);
-  const [comprobando, setComprobando] = useState(true);
+// ═══════════════════════════════════════════════════════════════════════
+// PANEL ADMIN: GESTIÓN DE USUARIOS
+// ═══════════════════════════════════════════════════════════════════════
 
-  // Al cargar, comprobar si ya está autenticado en este navegador
+function PanelAdmin({ usuarioActual, onCerrar }) {
+  const [usuarios, setUsuarios] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState(null);
+  const [editando, setEditando] = useState(null); // {id, nombre, pin, es_admin}
+  const [nuevoForm, setNuevoForm] = useState({ nombre: "", pin: "", es_admin: false });
+  const [mostrarNuevo, setMostrarNuevo] = useState(false);
+
+  const recargar = async () => {
+    setCargando(true); setError(null);
+    try {
+      const lista = await listarUsuariosAdmin(usuarioActual.pin);
+      setUsuarios(lista);
+    } catch (err) { setError(err.message); }
+    setCargando(false);
+  };
+
+  useEffect(() => { recargar(); }, []);
+
+  const onAdd = async () => {
+    if (!nuevoForm.nombre.trim() || !nuevoForm.pin.trim()) { alert("Nombre y PIN obligatorios"); return; }
+    try {
+      await crearUsuario(usuarioActual.pin, nuevoForm.nombre.trim(), nuevoForm.pin.trim(), nuevoForm.es_admin);
+      setNuevoForm({ nombre: "", pin: "", es_admin: false });
+      setMostrarNuevo(false);
+      recargar();
+    } catch (err) { alert("Error: " + err.message); }
+  };
+
+  const onSaveEdit = async () => {
+    try {
+      await actualizarUsuario(usuarioActual.pin, editando.id, {
+        nombre: editando.nombre.trim(), pin: editando.pin.trim(), es_admin: editando.es_admin
+      });
+      setEditando(null);
+      recargar();
+    } catch (err) { alert("Error: " + err.message); }
+  };
+
+  const onDelete = async (u) => {
+    if (u.id === usuarioActual.id) { alert("No puedes borrarte a ti mismo"); return; }
+    if (!confirm(`¿Eliminar a "${u.nombre}"?`)) return;
+    try {
+      await borrarUsuario(usuarioActual.pin, u.id);
+      recargar();
+    } catch (err) { alert("Error: " + err.message); }
+  };
+
+  const C = { padding: "8px 10px", fontSize: 11, fontFamily: "'Courier New',monospace", borderBottom: "1px solid #eae7e2" };
+  const TH = { ...C, fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", color: "#666", fontWeight: 700, textAlign: "left", borderBottom: "1px solid #d0ccc6" };
+  const inp = { padding: "6px 8px", fontSize: 11, border: "1px solid #c0bcb5", borderRadius: 4, fontFamily: "'Courier New',monospace", boxSizing: "border-box" };
+  const btn = (bg, color = "#fff") => ({ padding: "6px 12px", fontSize: 10, fontFamily: "'Courier New',monospace", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", background: bg, color, border: "none", borderRadius: 4, cursor: "pointer" });
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: 20, overflowY: "auto" }}>
+      <div style={{ background: "#f0ede8", borderRadius: 10, padding: 24, maxWidth: 800, width: "100%", marginTop: 40, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <h2 style={{ margin: 0, fontSize: 14, letterSpacing: "0.15em", textTransform: "uppercase", color: "#1a1a1a", fontFamily: "'Courier New',monospace" }}>⚙ Gestión de Usuarios</h2>
+          <button onClick={onCerrar} style={btn("#1a1a1a")}>✕ Cerrar</button>
+        </div>
+
+        {error && <div style={{ padding: 10, background: "rgba(160,69,69,0.1)", border: "1px solid #a04545", borderRadius: 4, color: "#a04545", fontSize: 11, marginBottom: 12 }}>✕ {error}</div>}
+
+        <div style={{ marginBottom: 12 }}>
+          {!mostrarNuevo ? (
+            <button onClick={() => setMostrarNuevo(true)} style={btn("#5a8a5a")}>+ Añadir usuario</button>
+          ) : (
+            <div style={{ padding: 12, background: "#fff", borderRadius: 6, border: "1px solid #d0ccc6", display: "grid", gridTemplateColumns: "1fr 100px auto auto auto", gap: 8, alignItems: "center" }}>
+              <input style={inp} placeholder="Nombre" value={nuevoForm.nombre} onChange={e => setNuevoForm({ ...nuevoForm, nombre: e.target.value })} />
+              <input style={inp} placeholder="PIN" value={nuevoForm.pin} onChange={e => setNuevoForm({ ...nuevoForm, pin: e.target.value })} />
+              <label style={{ fontSize: 10, fontFamily: "'Courier New',monospace", display: "flex", alignItems: "center", gap: 4 }}>
+                <input type="checkbox" checked={nuevoForm.es_admin} onChange={e => setNuevoForm({ ...nuevoForm, es_admin: e.target.checked })} /> Admin
+              </label>
+              <button onClick={onAdd} style={btn("#5a8a5a")}>Guardar</button>
+              <button onClick={() => { setMostrarNuevo(false); setNuevoForm({ nombre: "", pin: "", es_admin: false }); }} style={btn("#888")}>Cancelar</button>
+            </div>
+          )}
+        </div>
+
+        {cargando ? (
+          <div style={{ padding: 20, textAlign: "center", color: "#888", fontSize: 11 }}>Cargando...</div>
+        ) : (
+          <div style={{ background: "#fff", borderRadius: 6, overflow: "hidden", border: "1px solid #d0ccc6" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead><tr><th style={TH}>Nombre</th><th style={TH}>PIN</th><th style={{ ...TH, textAlign: "center" }}>Admin</th><th style={{ ...TH, textAlign: "right" }}>Acciones</th></tr></thead>
+              <tbody>
+                {usuarios.map(u => editando && editando.id === u.id ? (
+                  <tr key={u.id}>
+                    <td style={C}><input style={{ ...inp, width: "100%" }} value={editando.nombre} onChange={e => setEditando({ ...editando, nombre: e.target.value })} /></td>
+                    <td style={C}><input style={{ ...inp, width: "100%" }} value={editando.pin} onChange={e => setEditando({ ...editando, pin: e.target.value })} /></td>
+                    <td style={{ ...C, textAlign: "center" }}><input type="checkbox" checked={editando.es_admin} onChange={e => setEditando({ ...editando, es_admin: e.target.checked })} /></td>
+                    <td style={{ ...C, textAlign: "right" }}>
+                      <button onClick={onSaveEdit} style={{ ...btn("#5a8a5a"), marginRight: 4 }}>✓</button>
+                      <button onClick={() => setEditando(null)} style={btn("#888")}>✕</button>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={u.id}>
+                    <td style={{ ...C, fontWeight: u.id === usuarioActual.id ? 700 : 400 }}>{u.nombre}{u.id === usuarioActual.id && <span style={{ fontSize: 9, color: "#888", marginLeft: 6 }}>(tú)</span>}</td>
+                    <td style={C}>••••</td>
+                    <td style={{ ...C, textAlign: "center" }}>{u.es_admin ? "✓" : "—"}</td>
+                    <td style={{ ...C, textAlign: "right" }}>
+                      <button onClick={() => setEditando({ ...u })} style={{ ...btn("#b8864a"), marginRight: 4 }}>Editar</button>
+                      <button onClick={() => onDelete(u)} style={btn("#a04545")} disabled={u.id === usuarioActual.id}>Borrar</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div style={{ marginTop: 14, fontSize: 9, color: "#888", fontFamily: "'Courier New',monospace", letterSpacing: "0.05em" }}>
+          {usuarios.length} usuario{usuarios.length !== 1 ? "s" : ""} en total
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// BANNER SUPERIOR (sesión actual)
+// ═══════════════════════════════════════════════════════════════════════
+
+function BannerSesion({ usuario, onLogout, onAdmin }) {
+  return (
+    <div className="no-print" style={{
+      background: "#1a1a1a", color: "#f0ede8", padding: "8px 16px",
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      fontFamily: "'Courier New',monospace", fontSize: 11, letterSpacing: "0.08em",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ width: 24, height: 24, background: "#c8a96e", color: "#1a1a1a", borderRadius: 4, display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>B</span>
+        <span style={{ color: "#888", textTransform: "uppercase", fontSize: 9, letterSpacing: "0.18em" }}>Sesión:</span>
+        <span style={{ fontWeight: 700, color: "#f0ede8" }}>{usuario.nombre}</span>
+        {usuario.es_admin && <span style={{ background: "#c8a96e", color: "#1a1a1a", padding: "2px 6px", borderRadius: 3, fontSize: 8, fontWeight: 700, letterSpacing: "0.1em" }}>ADMIN</span>}
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        {usuario.es_admin && (
+          <button onClick={onAdmin} style={{ background: "transparent", color: "#c8a96e", border: "1px solid #c8a96e", padding: "4px 10px", borderRadius: 4, cursor: "pointer", fontSize: 10, fontFamily: "'Courier New',monospace", fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase" }}>⚙ Usuarios</button>
+        )}
+        <button onClick={onLogout} style={{ background: "transparent", color: "#aaa", border: "1px solid #444", padding: "4px 10px", borderRadius: 4, cursor: "pointer", fontSize: 10, fontFamily: "'Courier New',monospace", letterSpacing: "0.1em", textTransform: "uppercase" }}>Cerrar sesión</button>
+      </div>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// EXPORT DEFAULT
+// ═══════════════════════════════════════════════════════════════════════
+
+export default function App() {
+  const [usuario, setUsuario] = useState(null);
+  const [comprobando, setComprobando] = useState(true);
+  const [mostrarAdmin, setMostrarAdmin] = useState(false);
+
   useEffect(() => {
     try {
       const guardado = localStorage.getItem(AUTH_KEY);
-      if (guardado === "ok") setAutenticado(true);
-    } catch {}
-    setComprobando(false);
+      if (guardado) {
+        const parsed = JSON.parse(guardado);
+        // Re-validamos el PIN contra Supabase por si el usuario fue borrado/cambiado
+        loginUsuario(parsed.nombre, parsed.pin)
+          .then(u => {
+            if (u) setUsuario({ id: u.id, nombre: u.nombre, es_admin: u.es_admin, pin: parsed.pin });
+            else { localStorage.removeItem(AUTH_KEY); }
+            setComprobando(false);
+          })
+          .catch(() => setComprobando(false));
+      } else {
+        setComprobando(false);
+      }
+    } catch { setComprobando(false); }
   }, []);
 
-  if (comprobando) {
-    return <div style={{ minHeight: "100vh", background: "#1a1a1a" }} />;
-  }
+  const cerrarSesion = () => {
+    try { localStorage.removeItem(AUTH_KEY); } catch {}
+    setUsuario(null);
+  };
 
-  if (!autenticado) {
-    return <PantallaLogin onAcierto={() => setAutenticado(true)} />;
-  }
+  if (comprobando) return <div style={{ minHeight: "100vh", background: "#1a1a1a" }} />;
+  if (!usuario) return <PantallaLogin onAcierto={setUsuario} />;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f0ede8" }}>
-      <App45 />
-    </div>
+    <UsuarioContext.Provider value={usuario}>
+      <div style={{ minHeight: "100vh", background: "#f0ede8" }}>
+        <BannerSesion usuario={usuario} onLogout={cerrarSesion} onAdmin={() => setMostrarAdmin(true)} />
+        <App45 />
+        {mostrarAdmin && usuario.es_admin && (
+          <PanelAdmin usuarioActual={usuario} onCerrar={() => setMostrarAdmin(false)} />
+        )}
+      </div>
+    </UsuarioContext.Provider>
   );
 }
