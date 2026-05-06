@@ -2665,8 +2665,141 @@ ${docHTML}
 }
 
 
+// ─── PROTECCIÓN POR CONTRASEÑA ───────────────────────────────────────────
+// CAMBIA AQUÍ LA CONTRASEÑA cuando quieras (línea de abajo).
+// Tras cambiarla, todos los usuarios tendrán que volver a introducirla.
+const PASSWORD = "IRU2026BEB";
+
+// Clave que se guarda en localStorage cuando aciertas. Si cambias la PASSWORD
+// arriba, cambia también este número (1, 2, 3...) para forzar a que todos
+// vuelvan a hacer login con la nueva.
+const AUTH_KEY = "calc_auth_v1";
+
+function PantallaLogin({ onAcierto }) {
+  const [valor, setValor] = useState("");
+  const [error, setError] = useState(false);
+  const [intentos, setIntentos] = useState(0);
+
+  const intentar = () => {
+    if (valor === PASSWORD) {
+      try { localStorage.setItem(AUTH_KEY, "ok"); } catch {}
+      onAcierto();
+    } else {
+      setError(true);
+      setIntentos(n => n + 1);
+      setValor("");
+      setTimeout(() => setError(false), 600);
+    }
+  };
+
+  return (
+    <div style={{
+      minHeight: "100vh",
+      background: "linear-gradient(135deg, #1a1a1a 0%, #2a2520 100%)",
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+      fontFamily: "'Courier New', monospace",
+    }}>
+      <div style={{
+        background: "#f0ede8", borderRadius: 12, padding: "40px 36px",
+        maxWidth: 380, width: "100%",
+        boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+        border: "1px solid #c8a96e",
+        animation: error ? "shake 0.4s" : "none",
+      }}>
+        <style>{`
+          @keyframes shake {
+            0%,100% { transform: translateX(0); }
+            25% { transform: translateX(-8px); }
+            75% { transform: translateX(8px); }
+          }
+        `}</style>
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <div style={{
+            display: "inline-block", width: 56, height: 56,
+            background: "#c8a96e", borderRadius: 12,
+            color: "#1a1a1a", fontSize: 28, fontWeight: 700,
+            lineHeight: "56px", marginBottom: 14,
+            letterSpacing: "0",
+          }}>B</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#1a1a1a", letterSpacing: "0.18em", textTransform: "uppercase" }}>
+            Calculadora Salarios
+          </div>
+          <div style={{ fontSize: 10, color: "#888", marginTop: 4, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+            Acceso restringido
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: "block", fontSize: 9, color: "#666", letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 8 }}>
+            Contraseña
+          </label>
+          <input
+            type="password"
+            value={valor}
+            onChange={e => setValor(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && intentar()}
+            autoFocus
+            style={{
+              width: "100%", padding: "12px 14px", fontSize: 15,
+              border: `1px solid ${error ? "#a04545" : "#c0bcb5"}`,
+              borderRadius: 6, background: "#fff", boxSizing: "border-box",
+              fontFamily: "'Courier New', monospace",
+              outline: "none",
+            }}
+          />
+          {error && (
+            <div style={{ fontSize: 10, color: "#a04545", marginTop: 8, letterSpacing: "0.08em" }}>
+              ✕ Contraseña incorrecta {intentos > 2 ? `(${intentos} intentos)` : ""}
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={intentar}
+          style={{
+            width: "100%", padding: "12px 16px",
+            background: "#1a1a1a", color: "#f0ede8",
+            border: "none", borderRadius: 6, cursor: "pointer",
+            fontSize: 11, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase",
+            fontFamily: "'Courier New', monospace",
+          }}
+        >
+          Acceder
+        </button>
+
+        <div style={{ marginTop: 24, paddingTop: 16, borderTop: "1px solid #d8d4ce", textAlign: "center" }}>
+          <div style={{ fontSize: 9, color: "#aaa", letterSpacing: "0.1em" }}>
+            Si no tienes la contraseña, contacta con el administrador
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 // ─── EXPORT DEFAULT ──────────────────────────────────────────────────────
 export default function App() {
+  const [autenticado, setAutenticado] = useState(false);
+  const [comprobando, setComprobando] = useState(true);
+
+  // Al cargar, comprobar si ya está autenticado en este navegador
+  useEffect(() => {
+    try {
+      const guardado = localStorage.getItem(AUTH_KEY);
+      if (guardado === "ok") setAutenticado(true);
+    } catch {}
+    setComprobando(false);
+  }, []);
+
+  if (comprobando) {
+    return <div style={{ minHeight: "100vh", background: "#1a1a1a" }} />;
+  }
+
+  if (!autenticado) {
+    return <PantallaLogin onAcierto={() => setAutenticado(true)} />;
+  }
+
   return (
     <div style={{ minHeight: "100vh", background: "#f0ede8" }}>
       <App45 />
