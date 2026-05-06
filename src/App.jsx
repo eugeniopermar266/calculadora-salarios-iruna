@@ -78,9 +78,9 @@ function mesIndexParaFecha(fecha, desglose, fechaInicioStr) {
 }
 
 // ─── CONSTANTES ──────────────────────────────────────────────────────────────
-const DISCLAIMER_ES = "Esta herramienta ha sido disenada y desarrollada por Eugenio Perez Martin. Todos los derechos reservados. Queda prohibida su reproduccion, distribucion, comunicacion publica o uso comercial sin el consentimiento expreso por escrito del autor. El uso no autorizado podra ser perseguido legalmente.";
-const DISCLAIMER_EN = "This tool has been designed and developed by Eugenio Perez Martin. All rights reserved. Reproduction, distribution, public communication or commercial use without the express written consent of the author is strictly prohibited. Unauthorized use may be subject to legal action.";
-const DISCLAIMER_PDF = "(c) Eugenio Perez Martin - All Rights Reserved - Uso no autorizado prohibido / Unauthorized use forbidden";
+const DISCLAIMER_ES = "Esta herramienta ha sido disenada y desarrollada por Eugenio Perez. Todos los derechos reservados. Queda prohibida su reproduccion, distribucion, comunicacion publica o uso comercial sin el consentimiento expreso por escrito del autor. El uso no autorizado podra ser perseguido legalmente.";
+const DISCLAIMER_EN = "This tool has been designed and developed by Eugenio Perez. All rights reserved. Reproduction, distribution, public communication or commercial use without the express written consent of the author is strictly prohibited. Unauthorized use may be subject to legal action.";
+const DISCLAIMER_PDF = "(c) Eugenio Perez - All Rights Reserved - Uso no autorizado prohibido / Unauthorized use forbidden";
 
 const FACTOR_BASE      = 0.89286;
 const DIVISOR_VAC      = 11.478452;
@@ -1570,12 +1570,12 @@ function App45() {
   // Usuario actual de la sesión (para mostrar autor en exports)
   const usuarioSesion = useContext(UsuarioContext);
 
-  const [proyecto,         setProyecto]       = useState("");
+  const [proyecto,         setProyecto]       = useState("IRUÑA 97");
   const [productora,       setProductora]     = useState("");
   const [logoEmpresa,      setLogoEmpresa]    = useState("bizkaia");
   const [nombre,           setNombre]          = useState("");
-  const [puesto,           setPuesto]          = useState("MAQUINISTA");
-  const [salario45,        setSalario45]       = useState(4200);
+  const [puesto,           setPuesto]          = useState("");
+  const [salario45,        setSalario45]       = useState("");
   const [horasRef,         setHorasRef]        = useState(22);
   const [modoInverso45,    setModoInverso45]   = useState(false);
   const [objetivoSemanal45,setObjetivoSemanal45]=useState(1500);
@@ -1634,7 +1634,7 @@ function App45() {
     if (K_total <= 0) return null;
     return (objetivoSemanal45 * p.semanasTotales) / K_total;
   })();
-  const salario45efectivo = modoInverso45 && p45Inverso ? p45Inverso : salario45;
+  const salario45efectivo = modoInverso45 && p45Inverso ? p45Inverso : (Number(salario45) || 0);
 
   const divisorRef = 1 + FACTOR_HX * (horasRef || 1);
   const p40ref     = salario45efectivo / divisorRef;
@@ -1824,6 +1824,12 @@ function App45() {
 
     // Abrir modal con el contenido del CSV
     setModalCSV({ contenido: csv, filename });
+
+    // Registrar log de exportación
+    if (usuarioSesion) {
+      const detalle = [proyecto, productora, nombre].filter(Boolean).join(" | ") || "(sin datos)";
+      registrarLog(usuarioSesion.nombre, "export_csv", `${filename} · ${detalle}`);
+    }
   };
 
   // ── EXPORTAR PDF (45h) - muestra vista print y dispara window.print ──
@@ -1949,6 +1955,12 @@ ${docHTML}
       // Confirmación visual breve
       setExportError({ tipo: "ok", mensaje: `✓ Descargando: ${baseFilename}_45h.html` });
       setTimeout(() => setExportError(null), 4000);
+
+      // Registrar log de exportación
+      if (usuarioSesion) {
+        const detalle = [proyecto, productora, nombre].filter(Boolean).join(" | ") || "(sin datos)";
+        registrarLog(usuarioSesion.nombre, "export_pdf", `${baseFilename}_45h.html · ${detalle}`);
+      }
     } catch (e) {
       console.error("Error al exportar:", e);
       setExportError("Error al generar el archivo: " + (e?.message || String(e)));
@@ -2762,6 +2774,49 @@ async function borrarUsuario(adminPin, id) {
   });
 }
 
+// --- LOGS DE ACTIVIDAD ---
+// Registrar evento (login, export_csv, export_pdf). No bloqueante: si falla, sigue.
+async function registrarLog(usuarioNombre, tipo, detalle = "") {
+  try {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+    const ua = (typeof navigator !== "undefined" ? navigator.userAgent : "").slice(0, 200);
+    await supabaseFetch(`logs_actividad`, {
+      method: "POST",
+      headers: { "Prefer": "return=minimal" },
+      body: JSON.stringify({
+        usuario_nombre: usuarioNombre,
+        tipo,
+        detalle: detalle || null,
+        user_agent: ua || null,
+      }),
+    });
+  } catch (e) {
+    // Silencioso: no queremos romper la app si los logs fallan
+    console.warn("registrarLog falló:", e.message);
+  }
+}
+
+// Listar logs (solo admin). Permite filtros y limit
+async function listarLogs(adminPin, { usuario, tipo, limit = 200 } = {}) {
+  const params = new URLSearchParams();
+  params.set("select", "*");
+  params.set("order", "created_at.desc");
+  params.set("limit", String(limit));
+  if (usuario) params.set("usuario_nombre", `eq.${usuario}`);
+  if (tipo) params.set("tipo", `eq.${tipo}`);
+  return supabaseFetch(`logs_actividad?${params}`, {
+    headers: { "x-admin-pin": adminPin },
+  });
+}
+
+async function borrarLogsAntiguos(adminPin, dias = 30) {
+  const fechaLimite = new Date(Date.now() - dias * 24 * 60 * 60 * 1000).toISOString();
+  return supabaseFetch(`logs_actividad?created_at=lt.${fechaLimite}`, {
+    method: "DELETE",
+    headers: { "x-admin-pin": adminPin },
+  });
+}
+
 
 // ═══════════════════════════════════════════════════════════════════════
 // PANTALLA DE LOGIN
@@ -2800,6 +2855,8 @@ function PantallaLogin({ onAcierto }) {
             id: user.id, nombre: user.nombre, es_admin: user.es_admin, pin
           }));
         } catch {}
+        // Registrar log de acceso (no bloqueante)
+        registrarLog(user.nombre, "login");
         onAcierto({ id: user.id, nombre: user.nombre, es_admin: user.es_admin, pin });
       } else {
         setError(true); setIntentos(n => n + 1); setPin("");
@@ -3078,10 +3135,164 @@ function PanelAdmin({ usuarioActual, onCerrar }) {
 
 
 // ═══════════════════════════════════════════════════════════════════════
+// PANEL ADMIN: VISOR DE LOGS
+// ═══════════════════════════════════════════════════════════════════════
+
+function PanelLogs({ usuarioActual, onCerrar }) {
+  const [logs, setLogs] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState(null);
+  const [filtroTipo, setFiltroTipo] = useState("");
+  const [filtroUsuario, setFiltroUsuario] = useState("");
+  const [limit, setLimit] = useState(100);
+
+  const recargar = async () => {
+    setCargando(true); setError(null);
+    try {
+      const filtros = {};
+      if (filtroTipo) filtros.tipo = filtroTipo;
+      if (filtroUsuario) filtros.usuario = filtroUsuario;
+      filtros.limit = limit;
+      const lista = await listarLogs(usuarioActual.pin, filtros);
+      setLogs(lista || []);
+    } catch (err) { setError(err.message); }
+    setCargando(false);
+  };
+
+  useEffect(() => { recargar(); }, [filtroTipo, filtroUsuario, limit]);
+
+  const formatoFecha = (iso) => {
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString("es-ES", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" });
+    } catch { return iso; }
+  };
+
+  const tipoLabel = (t) => {
+    if (t === "login") return { txt: "🔓 LOGIN", color: "#5a8a5a" };
+    if (t === "export_csv") return { txt: "📄 CSV", color: "#b8864a" };
+    if (t === "export_pdf") return { txt: "📑 PDF", color: "#a04545" };
+    return { txt: t, color: "#666" };
+  };
+
+  const exportarLogsCSV = () => {
+    const sep = ";";
+    const lines = [];
+    lines.push(["Fecha", "Usuario", "Tipo", "Detalle", "Navegador"].join(sep));
+    logs.forEach(l => {
+      lines.push([
+        formatoFecha(l.created_at),
+        l.usuario_nombre || "",
+        l.tipo || "",
+        (l.detalle || "").replace(/[;\n]/g, " "),
+        (l.user_agent || "").replace(/[;\n]/g, " "),
+      ].join(sep));
+    });
+    const csv = "\uFEFF" + lines.join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `logs_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const limpiarAntiguos = async () => {
+    if (!confirm("¿Borrar logs de más de 30 días? Esta acción NO se puede deshacer.")) return;
+    try {
+      await borrarLogsAntiguos(usuarioActual.pin, 30);
+      recargar();
+      alert("Logs antiguos eliminados");
+    } catch (err) { alert("Error: " + err.message); }
+  };
+
+  const C = { padding: "7px 10px", fontSize: 10.5, fontFamily: "'Courier New',monospace", borderBottom: "1px solid #eae7e2", verticalAlign: "top" };
+  const TH = { ...C, fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", color: "#666", fontWeight: 700, textAlign: "left", borderBottom: "1px solid #d0ccc6", whiteSpace: "nowrap" };
+  const inp = { padding: "6px 8px", fontSize: 11, border: "1px solid #c0bcb5", borderRadius: 4, fontFamily: "'Courier New',monospace", background: "#fff" };
+  const btn = (bg, color = "#fff") => ({ padding: "6px 12px", fontSize: 10, fontFamily: "'Courier New',monospace", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", background: bg, color, border: "none", borderRadius: 4, cursor: "pointer" });
+
+  // Lista de usuarios únicos para el dropdown
+  const usuariosUnicos = [...new Set(logs.map(l => l.usuario_nombre).filter(Boolean))].sort();
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: 20, overflowY: "auto" }}>
+      <div style={{ background: "#f0ede8", borderRadius: 10, padding: 24, maxWidth: 1000, width: "100%", marginTop: 40, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <h2 style={{ margin: 0, fontSize: 14, letterSpacing: "0.15em", textTransform: "uppercase", color: "#1a1a1a", fontFamily: "'Courier New',monospace" }}>📊 Logs de Actividad</h2>
+          <button onClick={onCerrar} style={btn("#1a1a1a")}>✕ Cerrar</button>
+        </div>
+
+        {error && <div style={{ padding: 10, background: "rgba(160,69,69,0.1)", border: "1px solid #a04545", borderRadius: 4, color: "#a04545", fontSize: 11, marginBottom: 12 }}>✕ {error}</div>}
+
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <select style={inp} value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}>
+            <option value="">— Todos los tipos —</option>
+            <option value="login">🔓 Login</option>
+            <option value="export_csv">📄 Export CSV</option>
+            <option value="export_pdf">📑 Export PDF</option>
+          </select>
+          <select style={inp} value={filtroUsuario} onChange={e => setFiltroUsuario(e.target.value)}>
+            <option value="">— Todos los usuarios —</option>
+            {usuariosUnicos.map(u => <option key={u} value={u}>{u}</option>)}
+          </select>
+          <select style={inp} value={limit} onChange={e => setLimit(Number(e.target.value))}>
+            <option value={50}>Últimos 50</option>
+            <option value={100}>Últimos 100</option>
+            <option value={500}>Últimos 500</option>
+            <option value={2000}>Últimos 2000</option>
+          </select>
+          <button onClick={recargar} style={btn("#888")}>🔄 Refrescar</button>
+          <div style={{ flex: 1 }} />
+          <button onClick={exportarLogsCSV} style={btn("#5a8a5a")} disabled={logs.length === 0}>↓ Exportar CSV</button>
+          <button onClick={limpiarAntiguos} style={btn("#a04545")}>🗑 Limpiar +30d</button>
+        </div>
+
+        {cargando ? (
+          <div style={{ padding: 20, textAlign: "center", color: "#888", fontSize: 11 }}>Cargando logs...</div>
+        ) : logs.length === 0 ? (
+          <div style={{ padding: 30, textAlign: "center", color: "#888", fontSize: 11, background: "#fff", borderRadius: 6, border: "1px solid #d0ccc6" }}>No hay logs con los filtros seleccionados</div>
+        ) : (
+          <div style={{ background: "#fff", borderRadius: 6, overflow: "hidden", border: "1px solid #d0ccc6", maxHeight: "60vh", overflowY: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead style={{ position: "sticky", top: 0, background: "#f0ede8", zIndex: 1 }}>
+                <tr>
+                  <th style={TH}>Fecha</th>
+                  <th style={TH}>Usuario</th>
+                  <th style={TH}>Tipo</th>
+                  <th style={TH}>Detalle</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.map(l => {
+                  const t = tipoLabel(l.tipo);
+                  return (
+                    <tr key={l.id}>
+                      <td style={{ ...C, color: "#666", whiteSpace: "nowrap" }}>{formatoFecha(l.created_at)}</td>
+                      <td style={{ ...C, fontWeight: 600 }}>{l.usuario_nombre}</td>
+                      <td style={{ ...C, color: t.color, fontWeight: 700, whiteSpace: "nowrap" }}>{t.txt}</td>
+                      <td style={{ ...C, color: "#444" }}>{l.detalle || "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div style={{ marginTop: 12, fontSize: 9, color: "#888", fontFamily: "'Courier New',monospace", letterSpacing: "0.05em", textAlign: "center" }}>
+          Mostrando {logs.length} registro{logs.length !== 1 ? "s" : ""}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
 // BANNER SUPERIOR (sesión actual)
 // ═══════════════════════════════════════════════════════════════════════
 
-function BannerSesion({ usuario, onLogout, onAdmin }) {
+function BannerSesion({ usuario, onLogout, onAdmin, onLogs }) {
   return (
     <div className="no-print" style={{
       background: "#1a1a1a", color: "#f0ede8", padding: "8px 16px",
@@ -3096,7 +3307,10 @@ function BannerSesion({ usuario, onLogout, onAdmin }) {
       </div>
       <div style={{ display: "flex", gap: 8 }}>
         {usuario.es_admin && (
-          <button onClick={onAdmin} style={{ background: "transparent", color: "#c8a96e", border: "1px solid #c8a96e", padding: "4px 10px", borderRadius: 4, cursor: "pointer", fontSize: 10, fontFamily: "'Courier New',monospace", fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase" }}>⚙ Usuarios</button>
+          <>
+            <button onClick={onAdmin} style={{ background: "transparent", color: "#c8a96e", border: "1px solid #c8a96e", padding: "4px 10px", borderRadius: 4, cursor: "pointer", fontSize: 10, fontFamily: "'Courier New',monospace", fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase" }}>⚙ Usuarios</button>
+            <button onClick={onLogs} style={{ background: "transparent", color: "#c8a96e", border: "1px solid #c8a96e", padding: "4px 10px", borderRadius: 4, cursor: "pointer", fontSize: 10, fontFamily: "'Courier New',monospace", fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase" }}>📊 Logs</button>
+          </>
         )}
         <button onClick={onLogout} style={{ background: "transparent", color: "#aaa", border: "1px solid #444", padding: "4px 10px", borderRadius: 4, cursor: "pointer", fontSize: 10, fontFamily: "'Courier New',monospace", letterSpacing: "0.1em", textTransform: "uppercase" }}>Cerrar sesión</button>
       </div>
@@ -3113,6 +3327,7 @@ export default function App() {
   const [usuario, setUsuario] = useState(null);
   const [comprobando, setComprobando] = useState(true);
   const [mostrarAdmin, setMostrarAdmin] = useState(false);
+  const [mostrarLogs, setMostrarLogs] = useState(false);
 
   useEffect(() => {
     try {
@@ -3144,10 +3359,18 @@ export default function App() {
   return (
     <UsuarioContext.Provider value={usuario}>
       <div style={{ minHeight: "100vh", background: "#f0ede8" }}>
-        <BannerSesion usuario={usuario} onLogout={cerrarSesion} onAdmin={() => setMostrarAdmin(true)} />
+        <BannerSesion
+          usuario={usuario}
+          onLogout={cerrarSesion}
+          onAdmin={() => setMostrarAdmin(true)}
+          onLogs={() => setMostrarLogs(true)}
+        />
         <App45 />
         {mostrarAdmin && usuario.es_admin && (
           <PanelAdmin usuarioActual={usuario} onCerrar={() => setMostrarAdmin(false)} />
+        )}
+        {mostrarLogs && usuario.es_admin && (
+          <PanelLogs usuarioActual={usuario} onCerrar={() => setMostrarLogs(false)} />
         )}
       </div>
     </UsuarioContext.Provider>
