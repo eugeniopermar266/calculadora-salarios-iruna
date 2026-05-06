@@ -2009,7 +2009,7 @@ ${docHTML}
   };
 
   return (
-    <div style={{ color:"#1a1a1a", fontFamily:"'Courier New',monospace", padding:"32px 16px" }}>
+    <div style={{ color:"#1a1a1a", fontFamily:"'Courier New',monospace", padding:"32px 32px" }}>
 
       {/* Header */}
       
@@ -2441,36 +2441,46 @@ ${docHTML}
                   <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
                     <thead>
                       <tr>
-                        <th style={{padding:"7px 8px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"left",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#555"}}>Mes</th>
-                        <th style={{padding:"7px 8px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#555"}}>Fracc.</th>
-                        <th style={{padding:"7px 8px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#555"}}>Base 40h €</th>
-                        <th style={{padding:"7px 8px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#555"}}>Vac. €</th>
-                        <th style={{padding:"7px 8px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#555"}}>Indem. €</th>
-                        <th style={{padding:"7px 8px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#3a6898"}}>H.Ex h</th>
-                        <th style={{padding:"7px 8px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#3a6898"}}>H.Ex €</th>
-                        <th style={{padding:"7px 8px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#b07030"}}>Plus Act. €</th>
-                        <th style={{padding:"7px 8px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#1a1a1a"}}>TOTAL MES €</th>
-                        <th style={{padding:"7px 8px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#5a8a5a"}}>Compl. €</th>
-                        <th style={{padding:"7px 8px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#b8864a"}}>TOTAL MES + Compl. €</th>
+                        <th style={{padding:"6px 6px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"left",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#555"}}>Mes</th>
+                        <th style={{padding:"6px 6px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#555"}}>Fracc.</th>
+                        <th style={{padding:"6px 6px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#555"}}>Base 40h €</th>
+                        <th style={{padding:"6px 6px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#555"}}>Vac. €</th>
+                        <th style={{padding:"6px 6px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#555"}}>Indem. €</th>
+                        <th style={{padding:"6px 6px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#3a6898"}}>H.Ex h</th>
+                        <th style={{padding:"6px 6px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#3a6898"}}>H.Ex €</th>
+                        <th style={{padding:"6px 6px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#b07030"}}>Plus Act. €</th>
+                        <th style={{padding:"6px 6px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#1a1a1a"}}>TOTAL MES €</th>
+                        <th style={{padding:"6px 6px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#5a8a5a"}}>Compl. €</th>
+                        <th style={{padding:"6px 6px",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700,textAlign:"right",fontFamily:"'Courier New',monospace",borderBottom:"1px solid #e0ddd8",color:"#b8864a"}}>TOTAL MES + Compl. €</th>
                       </tr>
                     </thead>
                     <tbody>
                       {desglose45.map((d,i)=>(
                         <tr key={i} style={{ background:i%2===0?"transparent":"rgba(0,0,0,0.015)" }}>
-                          <td style={{padding:"7px 8px",fontSize:11,fontFamily:"'Courier New',monospace",color:"#1a1a1a",borderBottom:"1px solid #eae7e2"}}>
-                            <span style={{textTransform:"capitalize"}}>{d.mes}</span>
-                            {!d.esCompleto&&<span style={{fontSize:8,color:"#888",marginLeft:4}}>{d.desde}–{d.hasta}</span>}
+                          <td style={{padding:"6px 6px",fontSize:10.5,fontFamily:"'Courier New',monospace",color:"#1a1a1a",borderBottom:"1px solid #eae7e2",lineHeight:1.25,whiteSpace:"nowrap"}}>
+                            {(() => {
+                              const partes = d.mes.split(" de ");
+                              const mesNom = partes[0] || d.mes;
+                              const anio = partes[1] || "";
+                              return (
+                                <>
+                                  <span style={{textTransform:"capitalize",fontWeight:600}}>{mesNom}</span>
+                                  <span style={{color:"#888",fontSize:9,marginLeft:5}}>{anio}</span>
+                                  {!d.esCompleto&&<span style={{fontSize:8,color:"#b8864a",marginLeft:5}}>({d.desde}–{d.hasta})</span>}
+                                </>
+                              );
+                            })()}
                           </td>
-                          <td style={{padding:"7px 8px",fontSize:11,textAlign:"right",fontFamily:"'Courier New',monospace",color:"#888",borderBottom:"1px solid #eae7e2"}}>{fmtM(d.fraccion)}</td>
-                          <td style={{padding:"7px 8px",fontSize:11,textAlign:"right",fontFamily:"'Courier New',monospace",color:"#1a1a1a",borderBottom:"1px solid #eae7e2"}}>{fmt(d.base40)}</td>
-                          <td style={{padding:"7px 8px",fontSize:11,textAlign:"right",fontFamily:"'Courier New',monospace",color:d.vac40===0?"#ccc":"#1a1a1a",borderBottom:"1px solid #eae7e2"}}>{d.vac40===0?"—":fmt(d.vac40)}</td>
-                          <td style={{padding:"7px 8px",fontSize:11,textAlign:"right",fontFamily:"'Courier New',monospace",color:d.indem40===0?"#ccc":"#1a1a1a",borderBottom:"1px solid #eae7e2"}}>{d.indem40===0?"—":fmt(d.indem40)}</td>
-                          <td style={{padding:"7px 8px",fontSize:11,textAlign:"right",fontFamily:"'Courier New',monospace",color:"#3a6898",borderBottom:"1px solid #eae7e2"}}>{d.hMes}h</td>
-                          <td style={{padding:"7px 8px",fontSize:11,textAlign:"right",fontFamily:"'Courier New',monospace",color:"#3a6898",borderBottom:"1px solid #eae7e2"}}>{fmt(d.cobroHx)}</td>
-                          <td style={{padding:"7px 8px",fontSize:11,textAlign:"right",fontFamily:"'Courier New',monospace",color:d.plusAct>0?"#b07030":"#ccc",fontWeight:d.plusAct>0?600:400,borderBottom:"1px solid #eae7e2"}}>{d.plusAct>0?fmt(d.plusAct):"—"}</td>
-                          <td style={{padding:"7px 8px",fontSize:13,textAlign:"right",fontFamily:"'Courier New',monospace",color:"#1a1a1a",fontWeight:700,borderBottom:"1px solid #eae7e2"}}>{fmt(d.totalMes)}</td>
-                          <td style={{padding:"7px 8px",fontSize:11,textAlign:"right",fontFamily:"'Courier New',monospace",color:(complementos45[i]?.total || 0) > 0 ? "#5a8a5a" : "#ccc",fontWeight:(complementos45[i]?.total || 0) > 0 ? 600 : 400,borderBottom:"1px solid #eae7e2"}}>{(complementos45[i]?.total || 0) > 0 ? fmt(complementos45[i].total) : "—"}</td>
-                          <td style={{padding:"7px 8px",fontSize:13,textAlign:"right",fontFamily:"'Courier New',monospace",color:"#b8864a",fontWeight:700,borderBottom:"1px solid #eae7e2"}}>{fmt(d.totalMes + (complementos45[i]?.total || 0))}</td>
+                          <td style={{padding:"6px 6px",fontSize:11,textAlign:"right",fontFamily:"'Courier New',monospace",color:"#888",borderBottom:"1px solid #eae7e2"}}>{fmtM(d.fraccion)}</td>
+                          <td style={{padding:"6px 6px",fontSize:11,textAlign:"right",fontFamily:"'Courier New',monospace",color:"#1a1a1a",borderBottom:"1px solid #eae7e2"}}>{fmt(d.base40)}</td>
+                          <td style={{padding:"6px 6px",fontSize:11,textAlign:"right",fontFamily:"'Courier New',monospace",color:d.vac40===0?"#ccc":"#1a1a1a",borderBottom:"1px solid #eae7e2"}}>{d.vac40===0?"—":fmt(d.vac40)}</td>
+                          <td style={{padding:"6px 6px",fontSize:11,textAlign:"right",fontFamily:"'Courier New',monospace",color:d.indem40===0?"#ccc":"#1a1a1a",borderBottom:"1px solid #eae7e2"}}>{d.indem40===0?"—":fmt(d.indem40)}</td>
+                          <td style={{padding:"6px 6px",fontSize:11,textAlign:"right",fontFamily:"'Courier New',monospace",color:"#3a6898",borderBottom:"1px solid #eae7e2"}}>{d.hMes}h</td>
+                          <td style={{padding:"6px 6px",fontSize:11,textAlign:"right",fontFamily:"'Courier New',monospace",color:"#3a6898",borderBottom:"1px solid #eae7e2"}}>{fmt(d.cobroHx)}</td>
+                          <td style={{padding:"6px 6px",fontSize:11,textAlign:"right",fontFamily:"'Courier New',monospace",color:d.plusAct>0?"#b07030":"#ccc",fontWeight:d.plusAct>0?600:400,borderBottom:"1px solid #eae7e2"}}>{d.plusAct>0?fmt(d.plusAct):"—"}</td>
+                          <td style={{padding:"6px 6px",fontSize:13,textAlign:"right",fontFamily:"'Courier New',monospace",color:"#1a1a1a",fontWeight:700,borderBottom:"1px solid #eae7e2"}}>{fmt(d.totalMes)}</td>
+                          <td style={{padding:"6px 6px",fontSize:11,textAlign:"right",fontFamily:"'Courier New',monospace",color:(complementos45[i]?.total || 0) > 0 ? "#5a8a5a" : "#ccc",fontWeight:(complementos45[i]?.total || 0) > 0 ? 600 : 400,borderBottom:"1px solid #eae7e2"}}>{(complementos45[i]?.total || 0) > 0 ? fmt(complementos45[i].total) : "—"}</td>
+                          <td style={{padding:"6px 6px",fontSize:13,textAlign:"right",fontFamily:"'Courier New',monospace",color:"#b8864a",fontWeight:700,borderBottom:"1px solid #eae7e2"}}>{fmt(d.totalMes + (complementos45[i]?.total || 0))}</td>
                         </tr>
                       ))}
                     </tbody>
