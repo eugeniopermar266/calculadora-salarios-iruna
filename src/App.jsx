@@ -712,8 +712,8 @@ function InputsPorMes({ desglose, horasPorMes, setHorasPorMes, vacDiasPorMes, se
         const mesNombre = partes[0] || d.mes;
         const anio = partes[1] || "";
         return (
-        <div key={i} style={{ display:"grid", gridTemplateColumns:cols, gap:6, marginBottom:14, alignItems:"center" }}>
-          <div style={{ fontFamily:"'Courier New',monospace", lineHeight:1.25, paddingRight:4 }}>
+        <div key={i} style={{ display:"grid", gridTemplateColumns:cols, gap:6, marginBottom:8, alignItems:"center" }}>
+          <div style={{ fontFamily:"'Courier New',monospace", lineHeight:1.25, paddingRight:4, paddingTop:11 }}>
             <div style={{ fontSize:10.5, color:"#1a1a1a", fontWeight:600, textTransform:"capitalize", letterSpacing:"0.02em" }}>
               {mesNombre}
             </div>
@@ -729,7 +729,10 @@ function InputsPorMes({ desglose, horasPorMes, setHorasPorMes, vacDiasPorMes, se
             const valorMostrar = hasVal ? valorActual : autoH;
             const esEstimadoOriginal = hasVal && valorActual === autoH;
             return (
-              <div style={{ position:"relative" }}>
+              <div style={{ position:"relative", paddingTop:11 }}>
+                <div style={{ position:"absolute", top:0, left:0, right:0, fontSize:8, color: esEstimadoOriginal ? "#4a6a9a" : "#8aa0b8", fontFamily:"'Courier New',monospace", letterSpacing:"0.05em", textAlign:"center", pointerEvents:"none", lineHeight:1, fontWeight: esEstimadoOriginal ? 700 : 400 }}>
+                  L-V · {autoH}d
+                </div>
                 <input type="number" min="0" step="0.5"
                   value={valorMostrar}
                   onChange={e=>{
@@ -741,19 +744,21 @@ function InputsPorMes({ desglose, horasPorMes, setHorasPorMes, vacDiasPorMes, se
                   title={`Estimado L-V: ${autoH}h (puedes modificarlo)`}
                   style={{ background: esEstimadoOriginal?"#eef3f8":"#f0ede8", border:`1px solid ${esEstimadoOriginal?"#b8cce0":"#4a6a9a"}`, borderRadius:4, color:"#2a5a8a", fontFamily:"'Courier New',monospace", fontSize:11, padding:"4px 4px", outline:"none", textAlign:"center", colorScheme:"light", minWidth:0, width:"100%", boxSizing:"border-box" }}
                   onFocus={e=>e.target.style.borderColor="#4a6a9a"} onBlur={e=>e.target.style.borderColor=esEstimadoOriginal?"#b8cce0":"#4a6a9a"} />
-                {esEstimadoOriginal && <div style={{ position:"absolute", top:-9, left:0, right:0, fontSize:7, color:"#4a6a9a", fontFamily:"'Courier New',monospace", letterSpacing:"0.05em", textAlign:"center", pointerEvents:"none" }}>L-V</div>}
-                <div style={{ position:"absolute", bottom:-11, left:0, right:0, fontSize:7, color:"#8aa0b8", fontFamily:"'Courier New',monospace", letterSpacing:"0.03em", textAlign:"center", pointerEvents:"none" }}>/{autoH}d</div>
               </div>
             );
           })()}
-          <input type="number" min="0" step="1" value={vacDiasPorMes[i]||""} placeholder="0"
-            onChange={e=>setV(i,parseFloat(e.target.value)||0)}
-            style={{ background:"#f0ede8", border:"1px solid #e0c8b0", borderRadius:4, color:"#8a2a20", fontFamily:"'Courier New',monospace", fontSize:11, padding:"4px 4px", outline:"none", textAlign:"center", colorScheme:"light", minWidth:0, width:"100%", boxSizing:"border-box" }}
-            onFocus={e=>e.target.style.borderColor="#8a5030"} onBlur={e=>e.target.style.borderColor="#e0c8b0"} />
-          {hasFest && <input type="number" min="0" step="1" value={(festivosPorMes||[])[i]||""} placeholder="0"
-            onChange={e=>setF(i,parseFloat(e.target.value)||0)}
-            style={{ background:"#f0ede8", border:"1px solid #c8b0d8", borderRadius:4, color:"#6a3a9a", fontFamily:"'Courier New',monospace", fontSize:11, padding:"4px 4px", outline:"none", textAlign:"center", colorScheme:"light", minWidth:0, width:"100%", boxSizing:"border-box" }}
-            onFocus={e=>e.target.style.borderColor="#8a5aaa"} onBlur={e=>e.target.style.borderColor="#c8b0d8"} />}
+          <div style={{ paddingTop:11 }}>
+            <input type="number" min="0" step="1" value={vacDiasPorMes[i]||""} placeholder="0"
+              onChange={e=>setV(i,parseFloat(e.target.value)||0)}
+              style={{ background:"#f0ede8", border:"1px solid #e0c8b0", borderRadius:4, color:"#8a2a20", fontFamily:"'Courier New',monospace", fontSize:11, padding:"4px 4px", outline:"none", textAlign:"center", colorScheme:"light", minWidth:0, width:"100%", boxSizing:"border-box" }}
+              onFocus={e=>e.target.style.borderColor="#8a5030"} onBlur={e=>e.target.style.borderColor="#e0c8b0"} />
+          </div>
+          {hasFest && <div style={{ paddingTop:11 }}>
+            <input type="number" min="0" step="1" value={(festivosPorMes||[])[i]||""} placeholder="0"
+              onChange={e=>setF(i,parseFloat(e.target.value)||0)}
+              style={{ background:"#f0ede8", border:"1px solid #c8b0d8", borderRadius:4, color:"#6a3a9a", fontFamily:"'Courier New',monospace", fontSize:11, padding:"4px 4px", outline:"none", textAlign:"center", colorScheme:"light", minWidth:0, width:"100%", boxSizing:"border-box" }}
+              onFocus={e=>e.target.style.borderColor="#8a5aaa"} onBlur={e=>e.target.style.borderColor="#c8b0d8"} />
+          </div>}
         </div>
         );
       })}
@@ -3487,7 +3492,6 @@ export default function App() {
   if (comprobando) return <div style={{ minHeight: "100vh", background: "#1a1a1a" }} />;
   if (!usuario) return <PantallaLogin onAcierto={onLoginAcierto} />;
 
-  
   return (
     <UsuarioContext.Provider value={usuario}>
       <div style={{ minHeight: "100vh", background: "#f0ede8" }}>
