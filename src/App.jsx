@@ -1291,10 +1291,11 @@ function DocumentoImprimible({
   return (
     <div style={{ fontFamily: "'Courier New', monospace", color: "#1a1a1a", fontSize: 10, position: "relative" }}>
 
-      {/* ═══ MARCA DE AGUA "SIMULACRO" ═══ */}
-      {/* Patrón repetido en diagonal cubriendo todo el documento.
-          z-index 0 + posición absoluta + color con baja opacidad para que el
-          contenido (z-index 1) se lea perfectamente encima. */}
+      {/* ═══ MARCA DE AGUA "SIMULACRO DE NOMINA" ═══ */}
+      {/* Marca única, centrada en la página, en diagonal a -28°.
+          Tres líneas: SIMULACRO / DE / NOMINA. Opacidad sutil 0.06.
+          z-index alto + pointer-events:none para que quede sobre el
+          contenido sin bloquear interacción. */}
       <div
         aria-hidden="true"
         style={{
@@ -1303,22 +1304,32 @@ function DocumentoImprimible({
           pointerEvents: "none",
           overflow: "hidden",
           zIndex: 10,
-          // Patrón SVG en diagonal, repetido vertical y horizontalmente
-          backgroundImage: `url("data:image/svg+xml;utf8,${encodeURIComponent(
-            `<svg xmlns='http://www.w3.org/2000/svg' width='600' height='400' viewBox='0 0 600 400'>
-              <text x='300' y='220' fill='%231a1a1a' fill-opacity='0.10'
-                    font-family='Courier New, monospace' font-size='90' font-weight='700'
-                    text-anchor='middle' transform='rotate(-28 300 200)'
-                    letter-spacing='8'>SIMULACRO</text>
-            </svg>`
-          )}")`,
-          backgroundRepeat: "repeat",
-          backgroundPosition: "center top",
-          // Forzar que se imprima al exportar
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
           WebkitPrintColorAdjust: "exact",
           printColorAdjust: "exact",
         }}
-      />
+      >
+        <div
+          style={{
+            transform: "rotate(-28deg)",
+            color: "#1a1a1a",
+            opacity: 0.06,
+            fontFamily: "'Courier New', monospace",
+            fontWeight: 700,
+            textAlign: "center",
+            lineHeight: 0.95,
+            letterSpacing: "0.08em",
+            whiteSpace: "nowrap",
+            userSelect: "none",
+          }}
+        >
+          <div style={{ fontSize: 110 }}>SIMULACRO</div>
+          <div style={{ fontSize: 110 }}>DE</div>
+          <div style={{ fontSize: 110 }}>NOMINA</div>
+        </div>
+      </div>
 
       {/* Contenido del documento (z-index 1 para quedar SOBRE la marca de agua) */}
       <div style={{ position: "relative", zIndex: 1 }}>
