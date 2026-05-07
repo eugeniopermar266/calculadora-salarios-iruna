@@ -260,8 +260,31 @@ const fmt  = (n, d = 2) => parseFloat(n).toLocaleString("es-ES", { minimumFracti
 const fmtE = (n)        => fmt(n, 2) + " €";
 const fmtM = (n)        => fmt(n, 4);
 
-const P = { background: "#ffffff", border: "1px solid #e0ddd8", borderRadius: 8, padding: 24, marginBottom: 20 };
+const P = { background: "#ffffff", border: "1px solid #e0ddd8", borderRadius: 8, padding: 24, marginBottom: 20, minWidth: 0 };
 const ST = { fontSize: 10, letterSpacing: "0.2em", color: "#b8864a", textTransform: "uppercase", marginBottom: 20, paddingBottom: 12, borderBottom: "1px solid #e0ddd8" };
+
+// Badge "IMPORTES BRUTOS" – estilo dorado, en línea, visible
+const BadgeBrutos = ({ size = "normal" }) => {
+  const s = size === "small"
+    ? { fontSize: 8, padding: "1px 5px", marginLeft: 6 }
+    : size === "inline"
+      ? { fontSize: 10, padding: "2px 7px", marginLeft: 8 }
+      : { fontSize: 10, padding: "2px 8px", marginLeft: 10 };
+  return (
+    <span style={{
+      display: "inline-block",
+      background: "#b8864a",
+      color: "#fff",
+      fontWeight: 700,
+      letterSpacing: "0.12em",
+      textTransform: "uppercase",
+      borderRadius: 3,
+      fontFamily: "'Courier New', monospace",
+      verticalAlign: "middle",
+      ...s,
+    }}>Importes Brutos</span>
+  );
+};
 const LS = { display: "block", fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#555", marginBottom: 6, fontFamily: "'Courier New', monospace" };
 
 function Field({ label, value, onChange, type = "number", prefix, hint, small }) {
@@ -1343,7 +1366,7 @@ function DocumentoImprimible({
         </tbody>
       </table>
       <div style={{ background: "#fdf8f0", border: "1px solid #e8d4a8", padding: "8px 12px", textAlign: "center", fontSize: 11, fontWeight: 700, color: "#1a1a1a", letterSpacing: "0.05em" }}>
-        TOTAL ≈ P45 · <span style={{ color: "#b8864a", fontSize: 13 }}>{fmt(sumaRef)} €</span>
+        TOTAL ≈ P45 · <span style={{ color: "#b8864a", fontSize: 13 }}>{fmt(sumaRef)} €</span> <span style={{ display: "inline-block", background: "#b8864a", color: "#fff", fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", padding: "2px 7px", borderRadius: 3, marginLeft: 8, verticalAlign: "middle" }}>BRUTOS</span>
       </div>
 
       {/* ═══ CÁLCULO DE HORAS ═══ */}
@@ -1364,7 +1387,7 @@ function DocumentoImprimible({
       </table>
 
       {/* ═══ NÓMINA 45H POR MES TRABAJADO ═══ */}
-      <div style={sectionTitle}>▸ NÓMINA 45H POR MES TRABAJADO</div>
+      <div style={sectionTitle}>▸ NÓMINA 45H POR MES TRABAJADO <span style={{ display: "inline-block", background: "#b8864a", color: "#fff", fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", padding: "2px 7px", borderRadius: 3, marginLeft: 8, verticalAlign: "middle", textTransform: "uppercase" }}>Importes Brutos</span></div>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr>
@@ -1471,7 +1494,7 @@ function DocumentoImprimible({
       )}
 
       {/* ═══ RESUMEN DEL PERÍODO ═══ */}
-      <div style={sectionTitle}>▸ RESUMEN DEL PERÍODO</div>
+      <div style={sectionTitle}>▸ RESUMEN DEL PERÍODO <span style={{ display: "inline-block", background: "#b8864a", color: "#fff", fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", padding: "2px 7px", borderRadius: 3, marginLeft: 8, verticalAlign: "middle", textTransform: "uppercase" }}>Importes Brutos</span></div>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <tbody>
           <tr>
@@ -1510,7 +1533,7 @@ function DocumentoImprimible({
           )}
           <tr style={{ background: "#fdf8f0" }}>
             <td style={{ ...tdLabel, background: "#fdf8f0", color: "#b8864a", fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 10, padding: "8px 8px" }}>
-              TOTAL A PERCIBIR 45h {tieneCompl ? "(sin extras)" : ""}
+              TOTAL A PERCIBIR 45h {tieneCompl ? "(sin extras)" : ""} <span style={{ display: "inline-block", background: "#b8864a", color: "#fff", fontSize: 8, fontWeight: 700, letterSpacing: "0.12em", padding: "1px 6px", borderRadius: 3, marginLeft: 6, verticalAlign: "middle", textTransform: "uppercase" }}>Importe Bruto</span>
             </td>
             <td style={{ ...tdValue, background: "#fdf8f0", textAlign: "right", fontSize: 13, fontWeight: 700, color: "#b8864a", padding: "8px 8px" }}>
               {fmtE(totFinal)}
@@ -2058,7 +2081,7 @@ ${docHTML}
         </div>
       </div>
 
-      <div className="print-grid" style={{ maxWidth:1400, margin:"0 auto", display:"grid", gridTemplateColumns:"340px 1fr", gap:20 }}>
+      <div className="print-grid" style={{ maxWidth:1400, margin:"0 auto", display:"grid", gridTemplateColumns:"340px minmax(0, 1fr)", gap:20 }}>
 
         {/* COLUMNA IZQUIERDA */}
         <div className="no-print">
@@ -2385,11 +2408,11 @@ ${docHTML}
         </div>
 
         {/* COLUMNA DERECHA */}
-        <div>
+        <div style={{ minWidth: 0 }}>
           {p && desglose45.length > 0 ? (
             <>
               <div style={P}>
-                <div style={ST}>▸ Desglose Mensual Referencia</div>
+                <div style={ST}>▸ Desglose Mensual Referencia <BadgeBrutos /></div>
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10 }}>
                   {[
                     { l:"Base 40h",     v:baseRef,  s:"× 0,89286" },
@@ -2411,7 +2434,7 @@ ${docHTML}
               </div>
 
               <div style={P}>
-                <div style={ST}>▸ Valores de Referencia</div>
+                <div style={ST}>▸ Valores de Referencia <BadgeBrutos /></div>
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:10 }}>
                   {[
                     { l:"Salario / Día",    v: salarioDia,          s:"Base ÷ 30" },
@@ -2431,7 +2454,7 @@ ${docHTML}
 
               <div style={P}>
                 <div style={{ ...ST, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                  <span>▸ Nómina 45h por Mes</span>
+                  <span>▸ Nómina 45h por Mes <BadgeBrutos /></span>
                   <span style={{ display:"flex", gap:5 }}>
                     {vacAcumulada   && <span style={{ fontSize:8, background:"rgba(184,134,74,0.12)", color:"#8a5e20", borderRadius:3, padding:"2px 6px" }}>VAC AL FINAL</span>}
                     {indemAcumulada && <span style={{ fontSize:8, background:"rgba(184,134,74,0.12)", color:"#8a5e20", borderRadius:3, padding:"2px 6px" }}>INDEM AL FINAL</span>}
@@ -2578,7 +2601,7 @@ ${docHTML}
               )}
 
               <div style={P}>
-                <div style={ST}>▸ Resumen del Período</div>
+                <div style={ST}>▸ Resumen del Período <BadgeBrutos /></div>
                 <Row label="Base 40h equivalente"  value={fmtE(totBase)} />
                 <Row label="  · Vacaciones"         value={fmtE(totalVac45)}   muted />
                 <Row label="  · Indemnización"      value={fmtE(totalIndem45)} muted />
