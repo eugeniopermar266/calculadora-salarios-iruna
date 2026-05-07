@@ -86,6 +86,12 @@ const FACTOR_BASE      = 0.89286;
 const DIVISOR_VAC      = 11.478452;
 const FACTOR_INDEM_DIA = 0.98632;
 
+// 40H: el salario pactado se descompone en Base + Vac + Indem (suman = pactado)
+// Base + Base/11,478452 + (Base/30)*0,98632 = Salario_pactado
+// Base * (1 + 1/11,478452 + 0,98632/30) = Salario_pactado
+// Base * 1,119996 = Salario_pactado
+const DIVISOR_40H_BASE = 1 + 1/DIVISOR_VAC + FACTOR_INDEM_DIA/30; // = 1.119996
+
 // ─── LÓGICA DE FECHAS ────────────────────────────────────────────────────────
 function calcularPeriodo(fechaInicio, fechaFin) {
   if (!fechaInicio || !fechaFin) return null;
@@ -1755,12 +1761,19 @@ function App45({ modoTab = "iruna45" }) {
 
   const divisorRef = 1 + FACTOR_HX * (horasRef || 1);
   const p40ref     = salario45efectivo / divisorRef;
-  const baseRef    = p40ref * FACTOR_BASE;
+
+  // ===== CÁLCULO BASE / VAC / INDEM =====
+  // En 45H: Base = P40 × 0,89286 (factor jornada 40/45)
+  // En 40H: Base = Salario_pactado / 1,119996 (descomposición directa)
+  const baseRef    = es40h
+    ? (Number(salario45) || 0) / DIVISOR_40H_BASE
+    : p40ref * FACTOR_BASE;
   const vacRef     = baseRef / DIVISOR_VAC;
   const indemRef   = (baseRef / 30) * FACTOR_INDEM_DIA;
   const vHora      = (baseRef / 30 * 7) / 40;
   const vHoraEx    = vHora * 1.5;
   const hxRef      = vHoraEx * (horasRef || 0);
+  // sumaRef solo se usa en 45H (incluye h.extra). En 40H no aplica
   const sumaRef    = baseRef + vacRef + indemRef + hxRef;
   const salarioDia = baseRef / 30;
 
