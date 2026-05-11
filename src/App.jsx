@@ -1416,9 +1416,23 @@ function DocumentoImprimible({
         </tbody>
       </table>
       {es40h ? (
-        <div style={{ background: "#fdf8f0", border: "1px solid #e8d4a8", padding: "8px 12px", textAlign: "center", fontSize: 11, fontWeight: 700, color: "#1a1a1a", letterSpacing: "0.05em" }}>
-          TOTAL ≈ 40 · <span style={{ color: "#b8864a", fontSize: 13 }}>{fmt(baseRef + vacRef + indemRef)} €</span> <span style={{ display: "inline-block", background: "#b8864a", color: "#fff", fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", padding: "2px 7px", borderRadius: 3, marginLeft: 8, verticalAlign: "middle" }}>BRUTOS</span>
-        </div>
+        <>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <tbody>
+              <tr>
+                <td style={{ background: "#fdf8f0", border: "1px solid #e8d4a8", padding: "7px 10px", textAlign: "center", fontSize: 10, fontWeight: 700, color: "#1a1a1a", letterSpacing: "0.04em", width: "50%" }}>
+                  TOTAL MES 40H · <span style={{ color: "#b8864a", fontSize: 12 }}>{fmt(baseRef + vacRef + indemRef)} €</span> <span style={{ display: "inline-block", background: "#b8864a", color: "#fff", fontSize: 8, fontWeight: 700, letterSpacing: "0.1em", padding: "1px 5px", borderRadius: 3, marginLeft: 4, verticalAlign: "middle" }}>BRUTOS</span>
+                </td>
+                <td style={{ background: "#f0f6fc", border: "1px solid #c8d8e8", padding: "7px 10px", textAlign: "center", fontSize: 10, fontWeight: 700, color: "#1a1a1a", letterSpacing: "0.04em", width: "50%" }}>
+                  SALARIO EN CONTRATO · <span style={{ color: "#3a6898", fontSize: 12 }}>{fmt(baseRef + vacRef)} €</span> <span style={{ display: "inline-block", background: "#3a6898", color: "#fff", fontSize: 8, fontWeight: 700, letterSpacing: "0.1em", padding: "1px 5px", borderRadius: 3, marginLeft: 4, verticalAlign: "middle" }}>BRUTOS</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div style={{ marginTop: 8, padding: "7px 10px", background: "#fafaf7", border: "1px solid #e0ddd8", borderRadius: 3, fontSize: 9, color: "#555", lineHeight: 1.5, fontStyle: "italic" }}>
+            <strong style={{ color: "#1a1a1a", fontStyle: "normal" }}>Nota:</strong> Salario en contrato es la suma del salario base + las vacaciones.
+          </div>
+        </>
       ) : (
         <>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -2522,9 +2536,15 @@ ${docHTML}
                   ))}
                 </div>
                 {es40h ? (
-                  <div style={{ marginTop:10, padding:"10px 14px", background:"rgba(184,134,74,0.08)", borderRadius:6, border:"1px solid #e0ddd8", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                    <span style={{ fontSize:10, color:"#7a5a2a", letterSpacing:"0.12em", textTransform:"uppercase", fontFamily:"'Courier New',monospace" }}>TOTAL ≈ 40</span>
-                    <span style={{ fontSize:16, fontWeight:700, color:"#b8864a", fontFamily:"'Courier New',monospace" }}>{fmt(baseRef + vacRef + indemRef)} €</span>
+                  <div style={{ marginTop:10, display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                    <div style={{ padding:"10px 14px", background:"rgba(184,134,74,0.08)", borderRadius:6, border:"1px solid #e0ddd8", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                      <span style={{ fontSize:9.5, color:"#7a5a2a", letterSpacing:"0.1em", textTransform:"uppercase", fontFamily:"'Courier New',monospace" }}>Total Mes 40h</span>
+                      <span style={{ fontSize:16, fontWeight:700, color:"#b8864a", fontFamily:"'Courier New',monospace" }}>{fmt(baseRef + vacRef + indemRef)} €</span>
+                    </div>
+                    <div style={{ padding:"10px 14px", background:"rgba(58,104,152,0.08)", borderRadius:6, border:"1px solid #b8cce0", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                      <span style={{ fontSize:9.5, color:"#2a5a8a", letterSpacing:"0.1em", textTransform:"uppercase", fontFamily:"'Courier New',monospace" }}>Salario en Contrato</span>
+                      <span style={{ fontSize:16, fontWeight:700, color:"#3a6898", fontFamily:"'Courier New',monospace" }}>{fmt(baseRef + vacRef)} €</span>
+                    </div>
                   </div>
                 ) : (
                   <div style={{ marginTop:10, display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
@@ -2540,12 +2560,12 @@ ${docHTML}
                 )}
               </div>
 
-              {/* Nota informativa solo en 45H */}
-              {!es40h && (
-                <div style={{ background:"#fafaf7", padding:"10px 14px", borderRadius:6, border:"1px solid #e0ddd8", marginBottom:20, fontSize:10, color:"#666", fontFamily:"'Courier New',monospace", lineHeight:1.5, fontStyle:"italic" }}>
-                  <strong style={{ color:"#444", fontStyle:"normal" }}>Nota:</strong> El salario que figura en contrato es la suma del salario base 40h más las vacaciones.
-                </div>
-              )}
+              {/* Nota informativa (texto distinto en 45H vs 40H) */}
+              <div style={{ background:"#fafaf7", padding:"10px 14px", borderRadius:6, border:"1px solid #e0ddd8", marginBottom:20, fontSize:10, color:"#666", fontFamily:"'Courier New',monospace", lineHeight:1.5, fontStyle:"italic" }}>
+                <strong style={{ color:"#444", fontStyle:"normal" }}>Nota:</strong> {es40h
+                  ? "Salario en contrato es la suma del salario base + las vacaciones."
+                  : "El salario que figura en contrato es la suma del salario base 40h más las vacaciones."}
+              </div>
 
               <div style={P}>
                 <div style={ST}>▸ Valores de Referencia <BadgeBrutos /></div>
