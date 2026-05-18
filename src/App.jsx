@@ -363,6 +363,7 @@ function Div() { return <div style={{ height: 1, background: "#e8e4de", margin: 
 
 // ─── GESTOR DE PERFILES ──────────────────────────────────────────────────────
 function GestorPerfiles({ tabId, datosActuales, onCargarPerfil }) {
+  const usuarioCtx = useContext(UsuarioContext);
   const [perfiles, setPerfiles] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [mostrarLista, setMostrarLista] = useState(false);
@@ -435,7 +436,13 @@ function GestorPerfiles({ tabId, datosActuales, onCargarPerfil }) {
     const nombre = nombrePerfil.trim();
     if (!nombre) { showMsg("Introduce un nombre", "error"); return; }
     const key = `${STORAGE_PREFIX}${Date.now()}_${nombre.replace(/[^a-zA-Z0-9]/g,"_").slice(0,40)}`;
-    const payload = { nombre, tabId, timestamp: Date.now(), datos: datosActuales };
+    const payload = {
+      nombre,
+      tabId,
+      timestamp: Date.now(),
+      autor: usuarioCtx?.nombre || null,
+      datos: datosActuales,
+    };
     try {
       await storage.set(key, JSON.stringify(payload));
       const nuevoPerfil = { key, ...payload };
@@ -2204,6 +2211,16 @@ ${docHTML}
               fechaInicio, fechaFin, vacAcumulada, indemAcumulada,
               horasPorMes, vacDiasPorMes, festivosPorMes, festivosActivos, comidaDiasPorMes,
               plusHerramienta, plusCoche, plusVivienda, plusSeguroVida, plusComida,
+              // Snapshot de resultados calculados (para Coste Empresa)
+              _calculado: {
+                desglose45: desglose45 || [],
+                complementos45: complementos45 || [],
+                baseRef, vacRef, indemRef, hxRef, vHora, vHoraEx,
+                p40ref, sumaRef, salarioDia,
+                totBase, totVac, totIndem, totHx, totPlus, totVd,
+                totFinal, totalCompl,
+                totalVac45, totalIndem45, totalFestDias45, totalFestImport45,
+              },
             }}
             onCargarPerfil={(d) => {
               if (d.proyecto !== undefined) setProyecto(d.proyecto);
@@ -3576,6 +3593,323 @@ function PanelLogs({ usuarioActual, onCerrar }) {
 
 
 // ═══════════════════════════════════════════════════════════════════════
+// PESTAÑA "COSTE EMPRESA" — solo admin
+// ═══════════════════════════════════════════════════════════════════════
+
+function CosteEmpresa() {
+  const usuarioCtx = useContext(UsuarioContext);
+  const [perfiles, setPerfiles] = useState([]);
+  const [cargandoPerfiles, setCargandoPerfiles] = useState(true);
+  const [perfilCargado, setPerfilCargado] = useState(null);
+  const [busqueda, setBusqueda] = useState("");
+  const [filtroTipo, setFiltroTipo] = useState("todos"); // "todos" | "45h" | "40h"
+
+  // Adaptador de storage (igual que en GestorPerfiles)
+  const storage = (() => {
+    if (typeof window !== "undefined" && window.storage) return window.storage;
+    return {
+      list: async (prefix) => {
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith(prefix)) keys.push(k);
+        }
+        return { keys };
+      },
+      get: async (key) => {
+        const value = localStorage.getItem(key);
+        if (value === null) throw new Error("Not found");
+        return { value };
+      },
+    };
+  })();
+
+  // Cargar todos los perfiles (de los 3 prefijos: unif + legacy 45h + legacy 40h)
+  useEffect(() => {
+    (async () => {
+      try {
+        const prefijos = ["perfil_unif_", "perfil_40h_", "perfil_45h_"];
+        const todasKeys = [];
+        for (const prefix of prefijos) {
+          try {
+            const res = await storage.list(prefix);
+            if (res && res.keys) todasKeys.push(...res.keys);
+          } catch {}
+        }
+        const lista = await Promise.all(todasKeys.map(async k => {
+          try {
+            const d = await storage.get(k);
+            const data = JSON.parse(d.value);
+            // Si el perfil viene de un prefijo legacy, deducir tabId
+            let tabId = data.tabId;
+            if (!tabId) {
+              if (k.startsWith("perfil_45h_")) tabId = "iruna45";
+              else if (k.startsWith("perfil_40h_")) tabId = "tab40";
+            }
+            return { key: k, ...data, tabId };
+          } catch { return null; }
+        }));
+        setPerfiles(lista.filter(Boolean).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)));
+      } catch (e) {
+        console.error("Error cargando perfiles:", e);
+      }
+      setCargandoPerfiles(false);
+    })();
+  }, []);
+
+  const fmtFecha = (ts) => {
+    if (!ts) return "—";
+    try {
+      const d = new Date(ts);
+      return d.toLocaleString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    } catch { return "—"; }
+  };
+
+  const fmt = (n) => {
+    if (typeof n !== "number" || isNaN(n)) return "0,00";
+    return n.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  // Devuelve etiqueta "45H" o "40H" según tabId
+  const tipoLabel = (tabId) => {
+    if (tabId === "tab40") return { txt: "40H", color: "#3a6898" };
+    return { txt: "45H", color: "#b8864a" }; // iruna45 o desconocido = 45H
+  };
+
+  // Perfiles filtrados por búsqueda y tipo
+  const perfilesFiltrados = perfiles.filter(p => {
+    if (filtroTipo === "45h" && p.tabId !== "iruna45") return false;
+    if (filtroTipo === "40h" && p.tabId !== "tab40") return false;
+    if (!busqueda) return true;
+    const q = busqueda.toLowerCase();
+    const trabajador = p.datos?.nombre || "";
+    const proyecto = p.datos?.proyecto || "";
+    return (
+      (p.nombre || "").toLowerCase().includes(q) ||
+      trabajador.toLowerCase().includes(q) ||
+      proyecto.toLowerCase().includes(q)
+    );
+  });
+
+  const cargarPerfil = (p) => {
+    setPerfilCargado(p);
+    // Registrar log
+    if (usuarioCtx) {
+      const detalle = `[Coste Empresa] Cargado: ${p.nombre} (${p.tabId === "tab40" ? "40H" : "45H"})`;
+      try { registrarLog(usuarioCtx.nombre, "cargar_coste_empresa", detalle); } catch {}
+    }
+  };
+
+  // Estilo común
+  const P = { background: "#ffffff", border: "1px solid #e0ddd8", borderRadius: 8, padding: 24, marginBottom: 20, minWidth: 0 };
+  const ST = { fontSize: 10, letterSpacing: "0.2em", color: "#b8864a", textTransform: "uppercase", marginBottom: 20, paddingBottom: 12, borderBottom: "1px solid #e0ddd8" };
+
+  // === Si no hay perfil cargado: solo selector ===
+  if (!perfilCargado) {
+    return (
+      <div style={{ color: "#1a1a1a", fontFamily: "'Courier New',monospace", padding: "32px 32px" }}>
+        <div style={{ maxWidth: 1400, margin: "0 auto 24px" }}>
+          <div style={{ background: "#1a1a1a", padding: "18px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", color: "#f0e6d0", borderRadius: 8 }}>
+            <div style={{ background: "#c8a96e", color: "#1a1a1a", padding: "8px 14px", borderRadius: 4, fontSize: 12, fontWeight: 700, letterSpacing: "0.1em" }}>BUENDÍA ESTUDIOS</div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 9, color: "#c8a96e", letterSpacing: "0.25em", textTransform: "uppercase", marginBottom: 4 }}>Coste Empresa</div>
+              <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: "0.07em" }}>CALCULADORA DE SALARIOS</div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+          <div style={P}>
+            <div style={ST}>▸ Cargar Perfil Guardado</div>
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+              <input
+                type="text"
+                placeholder="🔍 Buscar perfil, trabajador o proyecto..."
+                value={busqueda}
+                onChange={e => setBusqueda(e.target.value)}
+                style={{ flex: 1, minWidth: 200, padding: "8px 12px", border: "1px solid #c0bcb5", borderRadius: 4, fontFamily: "'Courier New',monospace", fontSize: 11, background: "#f0ede8" }}
+              />
+              <select
+                value={filtroTipo}
+                onChange={e => setFiltroTipo(e.target.value)}
+                style={{ padding: "8px 12px", border: "1px solid #c0bcb5", borderRadius: 4, fontFamily: "'Courier New',monospace", fontSize: 11, background: "#f0ede8" }}
+              >
+                <option value="todos">Todos los tipos</option>
+                <option value="45h">Solo 45H</option>
+                <option value="40h">Solo 40H</option>
+              </select>
+            </div>
+
+            {cargandoPerfiles ? (
+              <div style={{ padding: 30, textAlign: "center", color: "#888", fontSize: 11 }}>Cargando perfiles...</div>
+            ) : perfilesFiltrados.length === 0 ? (
+              <div style={{ padding: 30, textAlign: "center", color: "#888", fontSize: 11, fontStyle: "italic" }}>
+                {perfiles.length === 0 ? "No hay perfiles guardados. Guarda uno desde 45H Iruña o 40H." : "No hay perfiles que coincidan con los filtros."}
+              </div>
+            ) : (
+              <div style={{ border: "1px solid #e0ddd8", borderRadius: 6, overflow: "hidden" }}>
+                {perfilesFiltrados.map((p, idx) => {
+                  const t = tipoLabel(p.tabId);
+                  const trabajador = p.datos?.nombre || "—";
+                  const puesto = p.datos?.puesto || "—";
+                  const autor = p.autor || "—";
+                  return (
+                    <div key={p.key} style={{ padding: "10px 14px", borderBottom: idx < perfilesFiltrados.length - 1 ? "1px solid #eae7e2" : "none", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
+                      onClick={() => cargarPerfil(p)}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a" }}>
+                          {p.nombre} <span style={{ background: t.color, color: "#fff", padding: "1px 6px", borderRadius: 3, fontSize: 8, marginLeft: 4, letterSpacing: "0.05em" }}>{t.txt}</span>
+                        </div>
+                        <div style={{ fontSize: 9.5, color: "#888", marginTop: 2 }}>
+                          {trabajador} · {puesto} · {fmtFecha(p.timestamp)} · por {autor}
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); cargarPerfil(p); }}
+                        style={{ background: "transparent", color: "#b8864a", border: "1px solid #b8864a", padding: "5px 12px", borderRadius: 3, fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", fontFamily: "'Courier New',monospace" }}
+                      >
+                        Cargar
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div style={{ marginTop: 12, fontSize: 9, color: "#888", textAlign: "center" }}>
+              {perfilesFiltrados.length} de {perfiles.length} perfil{perfiles.length !== 1 ? "es" : ""} guardado{perfiles.length !== 1 ? "s" : ""}
+            </div>
+          </div>
+
+          <div style={{ textAlign: "center", padding: 30, color: "#aaa", fontStyle: "italic", fontSize: 11, background: "#fff", borderRadius: 8, border: "1px dashed #d0ccc6" }}>
+            ⬆ Carga un perfil para empezar a calcular el coste empresa
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // === Perfil cargado: mostrar datos + tabla "Lo que percibe el trabajador" ===
+  const d = perfilCargado.datos || {};
+  const esTab40 = perfilCargado.tabId === "tab40";
+  const tipo = tipoLabel(perfilCargado.tabId);
+
+  // Reconstruir desglose mensual usando los datos del perfil
+  // Como FASE 1 no recalcula, mostramos los datos guardados o, si no están,
+  // un placeholder. Los importes Base/Vac/Indem por mes están en d.desglose
+  // si el perfil los guardó (lo hace el GestorPerfiles).
+  const desgloseGuardado = d._calculado?.desglose45 || d.desglose45 || d.desglose || [];
+  const complementosGuardado = d._calculado?.complementos45 || d.complementos45 || d.complementos || [];
+
+  return (
+    <div style={{ color: "#1a1a1a", fontFamily: "'Courier New',monospace", padding: "32px 32px" }}>
+      <div style={{ maxWidth: 1400, margin: "0 auto 24px" }}>
+        <div style={{ background: "#1a1a1a", padding: "18px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", color: "#f0e6d0", borderRadius: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{ background: "#c8a96e", color: "#1a1a1a", padding: "8px 14px", borderRadius: 4, fontSize: 12, fontWeight: 700, letterSpacing: "0.1em" }}>BUENDÍA ESTUDIOS</div>
+            <div>
+              <div style={{ fontSize: 9, color: "#c8a96e", letterSpacing: "0.2em", textTransform: "uppercase" }}>Perfil cargado</div>
+              <div style={{ fontSize: 13, fontWeight: 700, marginTop: 2 }}>
+                {perfilCargado.nombre} <span style={{ background: tipo.color, color: "#fff", padding: "1px 6px", borderRadius: 3, fontSize: 8, marginLeft: 4, letterSpacing: "0.05em" }}>{tipo.txt}</span>
+              </div>
+              <div style={{ fontSize: 9.5, color: "#aaa", marginTop: 2 }}>
+                {d.nombre || "—"} · {d.puesto || "—"} · {fmtFecha(perfilCargado.timestamp)}
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => setPerfilCargado(null)}
+            style={{ background: "transparent", color: "#aaa", border: "1px solid #555", padding: "6px 12px", borderRadius: 4, fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", fontFamily: "'Courier New',monospace" }}
+          >
+            ← Cambiar perfil
+          </button>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+        {/* Bloque Datos del trabajador */}
+        <div style={P}>
+          <div style={ST}>▸ Datos del Trabajador</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14 }}>
+            {[
+              { l: "Proyecto", v: d.proyecto },
+              { l: "Productora", v: d.productora },
+              { l: "Trabajador", v: d.nombre },
+              { l: "Puesto", v: d.puesto },
+              { l: "Salario pactado", v: d.salario45 ? `${fmt(Number(d.salario45))} €` : "—" },
+              { l: "Período", v: (d.fechaInicio && d.fechaFin) ? `${d.fechaInicio} → ${d.fechaFin}` : "—" },
+            ].map(it => (
+              <div key={it.l} style={{ background: "#f0ede8", borderRadius: 6, padding: "10px 12px", border: "1px solid #e0ddd8" }}>
+                <div style={{ fontSize: 9, color: "#666", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>{it.l}</div>
+                <div style={{ fontSize: 12, fontWeight: 700 }}>{it.v || "—"}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Tabla mensual "Lo que percibe el trabajador" */}
+        <div style={P}>
+          <div style={{ ...ST, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>▸ Lo que Percibe el Trabajador (Mensual)</span>
+            <span style={{ fontSize: 9, color: "#888", textTransform: "none", letterSpacing: "0.05em" }}>Brutos · {desgloseGuardado.length} mes{desgloseGuardado.length !== 1 ? "es" : ""}</span>
+          </div>
+
+          {desgloseGuardado.length === 0 ? (
+            <div style={{ padding: 30, textAlign: "center", color: "#888", fontSize: 11, fontStyle: "italic" }}>
+              Este perfil no contiene datos mensuales calculados. Por favor, abre el perfil en su pestaña original (45H o 40H), recalcula y guarda de nuevo.
+            </div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10.5 }}>
+                <thead>
+                  <tr style={{ background: "#f0ede8" }}>
+                    {["Mes", "Salario Base", "Vacaciones", "Indemnización", "H.Extra €", "Plus Act.", "Coche", "Vivienda", "Seguro Vida", "Comida", "TOTAL"].map(h => (
+                      <th key={h} style={{ padding: "8px 6px", fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700, textAlign: h === "Mes" ? "left" : "right", color: h === "TOTAL" ? "#b8864a" : "#666", borderBottom: "1px solid #d0ccc6", whiteSpace: "nowrap" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {desgloseGuardado.map((mes, i) => {
+                    const c = complementosGuardado[i] || {};
+                    const plusAct = esTab40 ? 0 : (mes.plusAct || 0);
+                    const totalMes = (mes.base40 || 0) + (mes.vac40 || 0) + (mes.indem40 || 0) + (mes.cobroHx || 0) + plusAct + (c.herramienta || 0) + (c.coche || 0) + (c.vivienda || 0) + (c.seguroVida || 0) + (c.comida || 0);
+                    return (
+                      <tr key={i} style={{ borderBottom: "1px solid #eae7e2" }}>
+                        <td style={{ padding: "7px 6px", fontWeight: 600, textTransform: "capitalize" }}>
+                          {mes.mes}{!mes.esCompleto && <span style={{ fontSize: 8, color: "#888", marginLeft: 4 }}>({mes.desde}-{mes.hasta})</span>}
+                        </td>
+                        <td style={{ padding: "7px 6px", textAlign: "right" }}>{fmt(mes.base40 || 0)}</td>
+                        <td style={{ padding: "7px 6px", textAlign: "right", color: (mes.vac40 || 0) === 0 ? "#bbb" : "#1a1a1a" }}>{(mes.vac40 || 0) === 0 ? "—" : fmt(mes.vac40)}</td>
+                        <td style={{ padding: "7px 6px", textAlign: "right", color: (mes.indem40 || 0) === 0 ? "#bbb" : "#1a1a1a" }}>{(mes.indem40 || 0) === 0 ? "—" : fmt(mes.indem40)}</td>
+                        <td style={{ padding: "7px 6px", textAlign: "right", color: (mes.cobroHx || 0) === 0 ? "#bbb" : "#3a6898" }}>{(mes.cobroHx || 0) === 0 ? "—" : fmt(mes.cobroHx)}</td>
+                        <td style={{ padding: "7px 6px", textAlign: "right", color: plusAct === 0 ? "#bbb" : "#b07030" }}>{plusAct === 0 ? "—" : fmt(plusAct)}</td>
+                        <td style={{ padding: "7px 6px", textAlign: "right", color: (c.coche || 0) === 0 ? "#bbb" : "#5a8a5a" }}>{(c.coche || 0) === 0 ? "—" : fmt(c.coche)}</td>
+                        <td style={{ padding: "7px 6px", textAlign: "right", color: (c.vivienda || 0) === 0 ? "#bbb" : "#5a8a5a" }}>{(c.vivienda || 0) === 0 ? "—" : fmt(c.vivienda)}</td>
+                        <td style={{ padding: "7px 6px", textAlign: "right", color: (c.seguroVida || 0) === 0 ? "#bbb" : "#5a8a5a" }}>{(c.seguroVida || 0) === 0 ? "—" : fmt(c.seguroVida)}</td>
+                        <td style={{ padding: "7px 6px", textAlign: "right", color: (c.comida || 0) === 0 ? "#bbb" : "#5a8a5a" }}>{(c.comida || 0) === 0 ? "—" : fmt(c.comida)}</td>
+                        <td style={{ padding: "7px 6px", textAlign: "right", fontWeight: 700, color: "#b8864a" }}>{fmt(totalMes)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Placeholder informativo */}
+        <div style={{ padding: 20, background: "rgba(184,134,74,0.08)", borderRadius: 8, border: "1px dashed #c8a96e", textAlign: "center", fontSize: 11, color: "#7a5a2a", lineHeight: 1.6 }}>
+          <strong>FASE 1:</strong> Solo se muestra lo que percibe el trabajador. Los cálculos de coste empresa<br/>
+          (Seguridad Social, IMEI, Cuota de Solidaridad, IRPF Vivienda, Gestoría) se añadirán en la FASE 2.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
 // BANNER SUPERIOR (sesión actual)
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -3605,6 +3939,42 @@ function BannerSesion({ usuario, onLogout, onAdmin, onLogs, tab, onChangeTab }) 
     );
   };
 
+  // Botón "Coste Empresa" con control de acceso (solo admin)
+  const tabCosteEmpresa = () => {
+    const id = "costeEmpresa";
+    const activa = tab === id;
+    const esAdmin = usuario.es_admin;
+    return (
+      <button
+        onClick={() => {
+          if (!esAdmin) {
+            alert("Acceso restringido\n\nLa pestaña Coste Empresa solo está disponible para administradores.");
+            return;
+          }
+          onChangeTab(id);
+        }}
+        title={esAdmin ? "" : "Acceso restringido a admin"}
+        style={{
+          background: activa ? "#c8a96e" : "transparent",
+          color: activa ? "#1a1a1a" : (esAdmin ? "#aaa" : "#666"),
+          border: `1px solid ${activa ? "#c8a96e" : (esAdmin ? "#444" : "#333")}`,
+          padding: "5px 14px",
+          borderRadius: 4,
+          cursor: "pointer",
+          fontSize: 10,
+          fontFamily: "'Courier New',monospace",
+          fontWeight: 700,
+          letterSpacing: "0.12em",
+          textTransform: "uppercase",
+          transition: "all 0.15s",
+          opacity: (esAdmin || activa) ? 1 : 0.6,
+        }}
+      >
+        {!esAdmin && "🔒 "}Coste Empresa
+      </button>
+    );
+  };
+
   return (
     <div className="no-print" style={{
       background: "#1a1a1a", color: "#f0ede8", padding: "8px 16px",
@@ -3623,6 +3993,7 @@ function BannerSesion({ usuario, onLogout, onAdmin, onLogs, tab, onChangeTab }) 
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
         {tabBtn("iruna45", "45H Iruña")}
         {tabBtn("tab40", "40H")}
+        {tabCosteEmpresa()}
       </div>
 
       <div style={{ display: "flex", gap: 8 }}>
@@ -3772,7 +4143,9 @@ export default function App() {
           onChangeTab={setTab}
         />
         {/* key={tab} fuerza remount al cambiar de pestaña → cada una tiene su propio estado */}
-        <App45 key={tab} modoTab={tab} />
+        {tab === "costeEmpresa"
+          ? (usuario.es_admin ? <CosteEmpresa key="ce" /> : <App45 key="iruna45" modoTab="iruna45" />)
+          : <App45 key={tab} modoTab={tab} />}
         {mostrarAdmin && usuario.es_admin && (
           <PanelAdmin usuarioActual={usuario} onCerrar={() => setMostrarAdmin(false)} />
         )}
