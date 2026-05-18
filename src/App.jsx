@@ -138,9 +138,9 @@ function calcularCosteEmpresaMes({
   const baseIMEI        = Math.max(0, (total || 0) - (indem || 0));
   const imeiCalc        = baseIMEI > CE_TOPE_BASE ? CE_IMEI_TOPADO : baseIMEI * CE_PCT_IMEI;
 
-  // Base Solidaridad: TOTAL - indemnización (igual que IMEI)
-  // Solo si supera 5.101,20 € — calcula por tramos sobre el exceso
-  const baseSolidaridad = baseIMEI; // mismo importe
+  // Base Solidaridad: TOTAL - indemnización - vacaciones - horas extra
+  // (igual concepto que la Base SS Principal — solo el salario "regular")
+  const baseSolidaridad = Math.max(0, (total || 0) - (indem || 0) - (vacaciones || 0) - (horasExtraEur || 0));
   let solidaridad = 0;
   if (baseSolidaridad > CE_TOPE_BASE) {
     const exc = baseSolidaridad - CE_TOPE_BASE;
@@ -4110,7 +4110,8 @@ function CosteEmpresa() {
                 <strong style={{ color: "#444" }}>Reglas aplicadas:</strong><br/>
                 · <strong>SS Principal</strong> (33,35%): sobre TOTAL del mes − vacaciones − indemnización. Topada a 1.701,25 € si base &gt; 5.101,20 €.<br/>
                 · <strong>SS Vacaciones</strong> (33,35%) y <strong>SS H.Extra</strong> (27%): siempre se suman aparte, independientes del tope.<br/>
-                · <strong>IMEI</strong> (0,75%) y <strong>Solidaridad</strong> (tramos 0,97% / 1,15% / 1,33%): sobre TOTAL del mes − indemnización. IMEI topado a 38,26 €.<br/>
+                · <strong>IMEI</strong> (0,75%): sobre TOTAL del mes − indemnización. Topado a 38,26 € si base &gt; 5.101,20 €.<br/>
+                · <strong>Solidaridad</strong> (tramos 0,97% / 1,15% / 1,33%): sobre exceso de (TOTAL − indemnización − vacaciones − horas extra) sobre 5.101,20 €.<br/>
                 · <strong>Indemnización</strong>: NO genera SS ni IMEI.<br/>
                 · <strong>Gestoría</strong>: primer mes 32 € (alta + nómina), resto 26 €.
               </div>
