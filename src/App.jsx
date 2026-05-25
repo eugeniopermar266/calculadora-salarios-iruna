@@ -6130,7 +6130,7 @@ function BannerSesion({ usuario, onLogout, onAdmin, onLogs, onPuestos, tab, onCh
         <span style={{ color: "#888", textTransform: "uppercase", fontSize: 9, letterSpacing: "0.18em" }}>Sesión:</span>
         <span style={{ fontWeight: 700, color: "#f0ede8" }}>{usuario.nombre}</span>
         {usuario.es_admin && <span style={{ background: "#c8a96e", color: "#1a1a1a", padding: "2px 6px", borderRadius: 3, fontSize: 8, fontWeight: 700, letterSpacing: "0.1em" }}>ADMIN</span>}
-        <span style={{ color: "#666", fontSize: 9, letterSpacing: "0.1em", fontWeight: 400, marginLeft: 4 }} title="Versión de la app">v38</span>
+        <span style={{ color: "#ffffff", fontSize: 13, letterSpacing: "0.08em", fontWeight: 700, marginLeft: 6 }} title="Versión de la app">v39</span>
       </div>
 
       {/* Pestañas centrales */}
