@@ -3789,7 +3789,250 @@ async function parsearExcelPuestos(archivo) {
 }
 
 
-// Listar logs (solo admin). Permite filtros y limit
+// ─────────────────────────────────────────────────────────────────────
+// EXCEL MASTER: Rellenar pestaña EQUIPO TÉCNICO con un perfil
+// ─────────────────────────────────────────────────────────────────────
+
+// Convierte índice de columna (0-based) a letra Excel (A, B, ..., Z, AA, AB, ..., HZ, ...)
+function colNumToLetter(n) {
+  let s = "";
+  let x = n;
+  while (x >= 0) {
+    s = String.fromCharCode((x % 26) + 65) + s;
+    x = Math.floor(x / 26) - 1;
+  }
+  return s;
+}
+
+// Devuelve clave de celda tipo "A8", "AB10" a partir de col (0-based) y row (1-based)
+function cellKey(col, row) {
+  return colNumToLetter(col) + row;
+}
+
+// Parsea fecha de Excel: puede venir como Date, número (serial) o string
+function parseFechaExcel(v) {
+  if (!v) return null;
+  if (v instanceof Date) return v;
+  if (typeof v === "number") {
+    // Excel serial: días desde 1900-01-01 (con bug del año bisiesto 1900)
+    const d = new Date(Date.UTC(1899, 11, 30));
+    d.setUTCDate(d.getUTCDate() + v);
+    return d;
+  }
+  if (typeof v === "string") {
+    const d = new Date(v);
+    if (!isNaN(d)) return d;
+  }
+  return null;
+}
+
+// Convierte fecha YYYY-MM-DD → Date local
+function fechaStrToDate(s) {
+  if (!s) return null;
+  const partes = String(s).split("-");
+  if (partes.length !== 3) return null;
+  return new Date(parseInt(partes[0]), parseInt(partes[1]) - 1, parseInt(partes[2]));
+}
+
+// Devuelve {año, mes (1-12)} de una Date
+function añoMes(d) {
+  return { year: d.getFullYear(), month: d.getMonth() + 1 };
+}
+
+// Detecta las columnas mensuales del Excel master
+// Lee fila 3, columnas a partir de la 29 (AC, índice 28 en 0-based)
+// Devuelve mapa: { "2026-04": { sueldosCol: 28, extrasCol: 29 }, ... }
+// Cada mes ocupa 10 columnas: inicio + 9 más. La columna donde está la fecha en fila 3
+// es la columna "AC" (2ª del bloque = SUELDOS valor). EXTRAS está 1 columna después.
+function detectarMesesExcel(sheetData) {
+  const fila3 = sheetData[2] || []; // 0-based: fila 3 es índice 2
+  const meses = {};
+  for (let ci = 28; ci < fila3.length; ci++) { // columna AC = índice 28
+    const v = fila3[ci];
+    const fecha = parseFechaExcel(v);
+    if (fecha && fecha.getDate() === 1) {
+      // Es inicio de mes. La col SUELDOS valor es esta misma columna (ci),
+      // y EXTRAS está en ci+1
+      const key = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, "0")}`;
+      // Pero ojo: en realidad el "sueldos valor" calculado está en ci (que tiene fecha primer día)
+      // y "extras" está en ci+1 (que tiene fecha último día). Mirando los encabezados de fila 5,
+      // la columna SUELDOS (valor) coincide con la fecha primer día.
+      if (!meses[key]) {
+        meses[key] = { sueldosCol: ci, extrasCol: ci + 1 };
+      }
+    }
+  }
+  return meses;
+}
+
+// Borra la fórmula y mete un valor en una celda del workbook
+// SheetJS: para sobrescribir, hay que asignar t (tipo) y v (value), y borrar f (formula)
+function setCellValue(ws, cellKey, value) {
+  // Si no existe la celda, la creamos
+  if (!ws[cellKey]) ws[cellKey] = {};
+  const cell = ws[cellKey];
+  // Eliminar fórmula y formato calculado
+  delete cell.f;
+  delete cell.F; // shared formula
+  if (value === null || value === undefined || value === "") {
+    cell.t = "z";
+    cell.v = undefined;
+  } else if (value instanceof Date) {
+    cell.t = "d";
+    cell.v = value;
+    cell.z = "yyyy-mm-dd";
+  } else if (typeof value === "number") {
+    cell.t = "n";
+    cell.v = value;
+  } else {
+    cell.t = "s";
+    cell.v = String(value);
+  }
+  return cell;
+}
+
+// Mapa de nombres de mes en español a número (1-12)
+const MES_NOMBRE_A_NUM = {
+  "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+  "julio": 7, "agosto": 8, "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12,
+};
+function parseMesEspañol(s) {
+  if (!s) return null;
+  const partes = s.toLowerCase().trim().split(/\s+/);
+  if (partes.length < 2) return null;
+  const month = MES_NOMBRE_A_NUM[partes[0]];
+  const year = parseInt(partes[partes.length - 1]);
+  if (!month || isNaN(year)) return null;
+  return { year, month };
+}
+
+// Calcula el desglose mensual desde el perfil cargado
+// Devuelve: { meses: [{ key, año, mes, sueldoBase, extras }], totalVac, totalIndem, totalExtras }
+function calcularDistribucionMensual(perfil) {
+  const d = perfil.datos || {};
+  const desglose = d._calculado?.desglose45 || d.desglose45 || d.desglose || [];
+  const complementos = d._calculado?.complementos45 || d.complementos45 || d.complementos || [];
+  const esT40 = perfil.tabId === "tab40";
+
+  // Fechas de inicio para mapear cada elemento del desglose a su YYYY-MM
+  const fechaIni = fechaStrToDate(d.fechaInicio);
+  const fechaFin = fechaStrToDate(d.fechaFin);
+
+  let totalVac = 0;
+  let totalIndem = 0;
+  let totalExtras = 0;
+  const meses = [];
+
+  for (let i = 0; i < desglose.length; i++) {
+    const mes = desglose[i];
+    const c = complementos[i] || {};
+    const plusAct = esT40 ? 0 : (mes.plusAct || 0);
+
+    // Sueldo base = SOLO Salario Base (sin vac ni indem)
+    const sueldoBase = mes.base40 || 0;
+
+    // Extras = todo lo que NO es base, vac, ni indem
+    const extrasMes = (mes.cobroHx || 0) + plusAct
+      + (c.herramienta || 0) + (c.coche || 0) + (c.vivienda || 0)
+      + (c.seguroVida || 0) + (c.comida || 0);
+
+    totalVac += mes.vac40 || 0;
+    totalIndem += mes.indem40 || 0;
+    totalExtras += extrasMes;
+
+    // Detectar año y mes parseando el string "abril 2026"
+    let year = null, month = null;
+    const parsed = parseMesEspañol(mes.mes);
+    if (parsed) {
+      year = parsed.year;
+      month = parsed.month;
+    } else if (fechaIni) {
+      // Fallback: usar la fecha de inicio + índice
+      const tmp = new Date(fechaIni.getFullYear(), fechaIni.getMonth() + i, 1);
+      year = tmp.getFullYear();
+      month = tmp.getMonth() + 1;
+    }
+
+    if (year && month) {
+      const key = `${year}-${String(month).padStart(2, "0")}`;
+      meses.push({ key, year, month, sueldoBase, extras: extrasMes });
+    }
+  }
+
+  return { meses, totalVac, totalIndem, totalExtras, fechaIni, fechaFin };
+}
+
+// Función principal: rellena la fila destino del Excel master
+async function rellenarExcelMaster(archivoMaster, perfil, filaDestino) {
+  const XLSX = await cargarXLSX();
+  const buf = await archivoMaster.arrayBuffer();
+  // cellNF: leer formato de celdas, cellStyles: leer estilos, cellDates: parsear fechas
+  const wb = XLSX.read(buf, { type: "array", cellNF: true, cellStyles: true, cellDates: true });
+
+  const nombreHoja = "EQUIPO TÉCNICO";
+  const ws = wb.Sheets[nombreHoja];
+  if (!ws) {
+    throw new Error(`El Excel no tiene la pestaña "${nombreHoja}"`);
+  }
+
+  // Leer datos como matriz para detectar columnas mensuales
+  const sheetData = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+  const mesesExcel = detectarMesesExcel(sheetData);
+
+  if (Object.keys(mesesExcel).length === 0) {
+    throw new Error("No se detectaron columnas mensuales en el Excel (fila 3, cols AC+)");
+  }
+
+  // Calcular distribución del perfil
+  const dist = calcularDistribucionMensual(perfil);
+  if (dist.meses.length === 0) {
+    throw new Error("El perfil no tiene desglose mensual calculado. Recarga el perfil y guárdalo de nuevo.");
+  }
+
+  const d = perfil.datos || {};
+
+  // ─── Rellenar bloque izquierdo ───
+  // D = código contable
+  setCellValue(ws, cellKey(3, filaDestino), d.codigoContable || "");
+  // F = nombre
+  setCellValue(ws, cellKey(5, filaDestino), d.nombre || "");
+  // G = salario pactado (numérico)
+  setCellValue(ws, cellKey(6, filaDestino), Number(d.salario45) || 0);
+  // K = fecha inicio
+  if (dist.fechaIni) setCellValue(ws, cellKey(10, filaDestino), dist.fechaIni);
+  // L = fecha fin
+  if (dist.fechaFin) setCellValue(ws, cellKey(11, filaDestino), dist.fechaFin);
+  // N = "SS"
+  setCellValue(ws, cellKey(13, filaDestino), "SS");
+  // U = total vacaciones (pisa fórmula)
+  setCellValue(ws, cellKey(20, filaDestino), Number(dist.totalVac) || 0);
+  // V = total indemnización (pisa fórmula)
+  setCellValue(ws, cellKey(21, filaDestino), Number(dist.totalIndem) || 0);
+  // W = total extras anual
+  setCellValue(ws, cellKey(22, filaDestino), Number(dist.totalExtras) || 0);
+
+  // ─── Rellenar columnas mensuales ───
+  const mesesEscritos = [];
+  const mesesNoEncontrados = [];
+  for (const m of dist.meses) {
+    const cols = mesesExcel[m.key];
+    if (!cols) {
+      mesesNoEncontrados.push(m.key);
+      continue;
+    }
+    // SUELDOS valor (col 2 del bloque mensual, p.ej. AC)
+    setCellValue(ws, cellKey(cols.sueldosCol, filaDestino), Number(m.sueldoBase) || 0);
+    // EXTRAS (col 3 del bloque mensual, p.ej. AD)
+    setCellValue(ws, cellKey(cols.extrasCol, filaDestino), Number(m.extras) || 0);
+    mesesEscritos.push(m.key);
+  }
+
+  // Generar archivo modificado
+  const nuevoBuf = XLSX.write(wb, { bookType: "xlsx", type: "array", cellStyles: true });
+  return { buffer: nuevoBuf, mesesEscritos, mesesNoEncontrados, mesesExcel };
+}
+
+
 async function listarLogs(adminPin, { usuario, tipo, limit = 200 } = {}) {
   const params = new URLSearchParams();
   params.set("select", "*");
@@ -4701,6 +4944,14 @@ function CosteEmpresa() {
   const [irpfActivo, setIrpfActivo] = useState(false);
   const [pctIRPF, setPctIRPF] = useState("");
 
+  // Modal exportar a Excel master
+  const [mostrarExportMaster, setMostrarExportMaster] = useState(false);
+  const [archivoMaster, setArchivoMaster] = useState(null);
+  const [filaDestinoExcel, setFilaDestinoExcel] = useState("8");
+  const [procesandoMaster, setProcesandoMaster] = useState(false);
+  const [errorMaster, setErrorMaster] = useState(null);
+  const inputMasterRef = useRef(null);
+
   // Adaptador de storage (igual que en GestorPerfiles)
   const storage = (() => {
     if (typeof window !== "undefined" && window.storage) return window.storage;
@@ -5224,6 +5475,76 @@ function CosteEmpresa() {
     }
   };
 
+  // ─── Exportar a Excel master (rellena fila en EQUIPO TÉCNICO) ───
+  const abrirModalExportMaster = () => {
+    if (!perfilCargado) { alert("Carga un perfil primero"); return; }
+    setErrorMaster(null);
+    setArchivoMaster(null);
+    setFilaDestinoExcel("8");
+    setMostrarExportMaster(true);
+  };
+
+  const onArchivoMasterSeleccionado = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (!f.name.toLowerCase().endsWith(".xlsx") && !f.name.toLowerCase().endsWith(".xlsm")) {
+      setErrorMaster("Solo se aceptan archivos .xlsx o .xlsm");
+      return;
+    }
+    setArchivoMaster(f);
+    setErrorMaster(null);
+  };
+
+  const procesarExcelMaster = async () => {
+    if (!perfilCargado || !archivoMaster) return;
+    const fila = parseInt(filaDestinoExcel);
+    if (isNaN(fila) || fila < 8 || fila > 500) {
+      setErrorMaster("Fila destino debe ser un número entre 8 y 500");
+      return;
+    }
+    setProcesandoMaster(true);
+    setErrorMaster(null);
+    try {
+      const { buffer, mesesEscritos, mesesNoEncontrados, mesesExcel } =
+        await rellenarExcelMaster(archivoMaster, perfilCargado, fila);
+
+      // Descargar
+      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const nombreOrig = archivoMaster.name.replace(/\.(xlsx|xlsm)$/i, "");
+      const partes = [perfilCargado.datos?.nombre, "rellenado"].filter(Boolean).map(s => String(s).replace(/[^a-zA-Z0-9]/g, "_"));
+      a.href = url;
+      a.download = `${nombreOrig}_${partes.join("_")}.xlsx`;
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+      // Log
+      if (usuarioCtx) {
+        try {
+          registrarLog(usuarioCtx.nombre, "export_excel_master",
+            `[Excel Master] ${perfilCargado.datos?.nombre || "—"} · Fila ${fila} · ${mesesEscritos.length} meses`);
+        } catch {}
+      }
+
+      // Mensaje al usuario
+      let msg = `✓ Excel generado. Fila ${fila} rellenada con ${mesesEscritos.length} meses.`;
+      if (mesesNoEncontrados.length > 0) {
+        msg += `\n\n⚠ ${mesesNoEncontrados.length} meses del perfil NO se encontraron en el Excel: ${mesesNoEncontrados.join(", ")}`;
+        msg += `\n\nMeses disponibles en el Excel: ${Object.keys(mesesExcel).sort().join(", ")}`;
+      }
+      alert(msg);
+      setMostrarExportMaster(false);
+    } catch (e) {
+      setErrorMaster("Error: " + e.message);
+    } finally {
+      setProcesandoMaster(false);
+    }
+  };
+
   // Estilo común
   const P = { background: "#ffffff", border: "1px solid #e0ddd8", borderRadius: 8, padding: 24, marginBottom: 20, minWidth: 0 };
   const ST = { fontSize: 10, letterSpacing: "0.2em", color: "#b8864a", textTransform: "uppercase", marginBottom: 20, paddingBottom: 12, borderBottom: "1px solid #e0ddd8" };
@@ -5356,6 +5677,13 @@ function CosteEmpresa() {
               title="Generar PDF (se abre en otra ventana para imprimir o guardar como PDF)"
             >
               📄 PDF
+            </button>
+            <button
+              onClick={abrirModalExportMaster}
+              style={{ background: "transparent", color: "#c8a96e", border: "1px solid #c8a96e", padding: "6px 12px", borderRadius: 4, fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", fontFamily: "'Courier New',monospace" }}
+              title="Rellenar fila en el Excel Master (EQUIPO TÉCNICO)"
+            >
+              📋 Excel Master
             </button>
             <button
               onClick={() => setPerfilCargado(null)}
@@ -5616,6 +5944,109 @@ function CosteEmpresa() {
           </div>
         </div>
       </div>
+
+      {/* MODAL: Exportar a Excel Master */}
+      {mostrarExportMaster && (
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget && !procesandoMaster) setMostrarExportMaster(false); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}
+        >
+          <div style={{ background: "#f0ede8", borderRadius: 8, maxWidth: 600, width: "100%", fontFamily: "'Courier New',monospace", color: "#1a1a1a", boxShadow: "0 10px 40px rgba(0,0,0,0.5)" }}>
+            <div style={{ background: "#1a1a1a", color: "#f0e6d0", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", borderRadius: "8px 8px 0 0" }}>
+              <div>
+                <div style={{ fontSize: 9, color: "#c8a96e", letterSpacing: "0.2em", textTransform: "uppercase" }}>Coste empresa</div>
+                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>📋 Rellenar Excel Master</div>
+              </div>
+              <button
+                onClick={() => !procesandoMaster && setMostrarExportMaster(false)}
+                disabled={procesandoMaster}
+                style={{ background: "transparent", color: "#aaa", border: "1px solid #444", padding: "6px 14px", borderRadius: 4, cursor: procesandoMaster ? "not-allowed" : "pointer", fontSize: 10, fontFamily: "'Courier New',monospace", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", opacity: procesandoMaster ? 0.5 : 1 }}
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div style={{ padding: 20 }}>
+              <div style={{ fontSize: 11, color: "#444", lineHeight: 1.6, marginBottom: 14 }}>
+                Esta opción rellena una fila en la pestaña <strong>EQUIPO TÉCNICO</strong> del Excel Master con los datos del perfil <strong>"{perfilCargado?.datos?.nombre || "—"}"</strong>.
+              </div>
+
+              {errorMaster && (
+                <div style={{ background: "#fde6e6", border: "1px solid #d8a0a0", color: "#7a2020", padding: "10px 14px", borderRadius: 4, marginBottom: 14, fontSize: 11 }}>
+                  {errorMaster}
+                </div>
+              )}
+
+              {/* Paso 1: Seleccionar archivo */}
+              <div style={{ background: "#fff", border: "1px solid #e0ddd8", borderRadius: 6, padding: 14, marginBottom: 14 }}>
+                <div style={{ fontSize: 10, color: "#7a5a2a", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 700, marginBottom: 8 }}>1. Excel Master original</div>
+                <input
+                  ref={inputMasterRef}
+                  type="file"
+                  accept=".xlsx,.xlsm"
+                  onChange={onArchivoMasterSeleccionado}
+                  style={{ display: "none" }}
+                />
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <button
+                    onClick={() => inputMasterRef.current?.click()}
+                    disabled={procesandoMaster}
+                    style={{ background: "transparent", color: "#c8a96e", border: "1px solid #c8a96e", padding: "6px 14px", borderRadius: 4, fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", fontFamily: "'Courier New',monospace" }}
+                  >
+                    📤 Seleccionar archivo
+                  </button>
+                  <div style={{ fontSize: 11, color: archivoMaster ? "#1a1a1a" : "#888", fontWeight: archivoMaster ? 700 : 400, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {archivoMaster ? archivoMaster.name : "Ningún archivo"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Paso 2: Fila destino */}
+              <div style={{ background: "#fff", border: "1px solid #e0ddd8", borderRadius: 6, padding: 14, marginBottom: 14 }}>
+                <div style={{ fontSize: 10, color: "#7a5a2a", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 700, marginBottom: 8 }}>2. Fila destino</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <input
+                    type="number"
+                    min="8"
+                    max="500"
+                    value={filaDestinoExcel}
+                    onChange={(e) => setFilaDestinoExcel(e.target.value)}
+                    disabled={procesandoMaster}
+                    style={{ width: 80, padding: "6px 10px", border: "1px solid #c0bcb5", borderRadius: 4, fontFamily: "'Courier New',monospace", fontSize: 12, fontWeight: 700, textAlign: "center" }}
+                  />
+                  <div style={{ fontSize: 10, color: "#666", lineHeight: 1.5 }}>
+                    En qué fila del Excel se rellenan los datos.<br/>
+                    Por defecto fila 8 (primera fila tras encabezados).
+                  </div>
+                </div>
+              </div>
+
+              {/* Aviso */}
+              <div style={{ background: "#fff8e6", border: "1px solid #d8c8a0", borderRadius: 4, padding: 10, marginBottom: 14, fontSize: 9.5, color: "#7a5a2a", lineHeight: 1.5 }}>
+                <strong>⚠ Importante:</strong> esta operación pisa las fórmulas de las columnas D, F, G, K, L, N, U, V, W de la fila destino, y rellena SUELDOS + EXTRAS de cada mes del contrato. Las fórmulas de SS, MEI, Solidaridad NO se tocan. Antes de pegar al Excel en producción, abre el archivo descargado y revisa los valores.
+              </div>
+
+              {/* Botones */}
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button
+                  onClick={() => setMostrarExportMaster(false)}
+                  disabled={procesandoMaster}
+                  style={{ background: "transparent", color: "#666", border: "1px solid #888", padding: "8px 16px", borderRadius: 4, fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", fontFamily: "'Courier New',monospace", opacity: procesandoMaster ? 0.5 : 1 }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={procesarExcelMaster}
+                  disabled={procesandoMaster || !archivoMaster}
+                  style={{ background: archivoMaster && !procesandoMaster ? "#c8a96e" : "#ddd", color: archivoMaster && !procesandoMaster ? "#1a1a1a" : "#888", border: "none", padding: "8px 20px", borderRadius: 4, fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", cursor: archivoMaster && !procesandoMaster ? "pointer" : "not-allowed", fontFamily: "'Courier New',monospace" }}
+                >
+                  {procesandoMaster ? "Procesando..." : "✓ Generar y descargar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -5699,6 +6130,7 @@ function BannerSesion({ usuario, onLogout, onAdmin, onLogs, onPuestos, tab, onCh
         <span style={{ color: "#888", textTransform: "uppercase", fontSize: 9, letterSpacing: "0.18em" }}>Sesión:</span>
         <span style={{ fontWeight: 700, color: "#f0ede8" }}>{usuario.nombre}</span>
         {usuario.es_admin && <span style={{ background: "#c8a96e", color: "#1a1a1a", padding: "2px 6px", borderRadius: 3, fontSize: 8, fontWeight: 700, letterSpacing: "0.1em" }}>ADMIN</span>}
+        <span style={{ color: "#666", fontSize: 9, letterSpacing: "0.1em", fontWeight: 400, marginLeft: 4 }} title="Versión de la app">v38</span>
       </div>
 
       {/* Pestañas centrales */}
