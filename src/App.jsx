@@ -614,25 +614,29 @@ function calcularCosteEmpresaMes({
   irpfActivo,    // boolean: ¿empresa asume IRPF?
   pctIRPF,       // 0-100: % IRPF del trabajador
   esPrimerMes,   // boolean: ¿es el primer mes del contrato?
+  importeExento = 0, // importe a restar de las bases SS/IMEI/Solidaridad (por baja médica)
+  firmaContrato = true, // boolean: ¿hay firma de contrato este primer mes? (afecta solo si esPrimerMes)
 }) {
-  // Base SS principal: TOTAL - vacaciones - indemnización
+  const exento = Math.max(0, importeExento || 0);
+
+  // Base SS principal: TOTAL - vacaciones - indemnización - importe exento
   // (las vacaciones tienen su propia SS aparte)
-  const baseSSPrincipal = Math.max(0, (total || 0) - (vacaciones || 0) - (indem || 0));
+  const baseSSPrincipal = Math.max(0, (total || 0) - (vacaciones || 0) - (indem || 0) - exento);
   const ssPrincipal     = baseSSPrincipal > CE_TOPE_BASE ? CE_SS_TOPADA : baseSSPrincipal * CE_PCT_SS;
 
-  // SS Vacaciones: siempre 33,35% × vacaciones (suma aparte)
+  // SS Vacaciones: siempre 33,35% × vacaciones (suma aparte, NO afectada por exención)
   const ssVacaciones    = (vacaciones || 0) * CE_PCT_SS;
 
-  // SS H.Extra: siempre 27% × h.extra (suma aparte)
+  // SS H.Extra: siempre 27% × h.extra (suma aparte, NO afectada por exención)
   const ssHorasExtra    = (horasExtraEur || 0) * CE_PCT_SS_HEXTRA;
 
-  // Base IMEI: TOTAL - indemnización (vacaciones SÍ cuentan)
-  const baseIMEI        = Math.max(0, (total || 0) - (indem || 0));
+  // Base IMEI: TOTAL - indemnización - importe exento (vacaciones SÍ cuentan)
+  const baseIMEI        = Math.max(0, (total || 0) - (indem || 0) - exento);
   const imeiCalc        = baseIMEI > CE_TOPE_BASE ? CE_IMEI_TOPADO : baseIMEI * CE_PCT_IMEI;
 
-  // Base Solidaridad: TOTAL - indemnización - vacaciones - horas extra
+  // Base Solidaridad: TOTAL - indemnización - vacaciones - horas extra - importe exento
   // (igual concepto que la Base SS Principal — solo el salario "regular")
-  const baseSolidaridad = Math.max(0, (total || 0) - (indem || 0) - (vacaciones || 0) - (horasExtraEur || 0));
+  const baseSolidaridad = Math.max(0, (total || 0) - (indem || 0) - (vacaciones || 0) - (horasExtraEur || 0) - exento);
   let solidaridad = 0;
   if (baseSolidaridad > CE_TOPE_BASE) {
     const exc = baseSolidaridad - CE_TOPE_BASE;
@@ -650,8 +654,13 @@ function calcularCosteEmpresaMes({
     ? (plusVivienda || 0) * (pctIRPF / 100)
     : 0;
 
-  // Gestoría: primer mes = 32 € (6 alta + 26 nómina), resto = 26 €
-  const gestoria = esPrimerMes ? (CE_GESTORIA_ALTA + CE_GESTORIA_MES) : CE_GESTORIA_MES;
+  // Gestoría:
+  // - Si esPrimerMes y firmaContrato → 32 € (6 alta + 26 nómina)
+  // - Si esPrimerMes y NO firmaContrato → 26 € (solo nómina, sin alta)
+  // - Si NO esPrimerMes → 26 €
+  const gestoria = (esPrimerMes && firmaContrato)
+    ? (CE_GESTORIA_ALTA + CE_GESTORIA_MES)
+    : CE_GESTORIA_MES;
 
   const totalCosteEmpresa = ssPrincipal + ssVacaciones + ssHorasExtra + imeiCalc + solidaridad + irpfVivienda + gestoria;
 
@@ -662,6 +671,7 @@ function calcularCosteEmpresaMes({
     baseSolidaridad, solidaridad,
     irpfVivienda,
     gestoria,
+    exento,
     totalCosteEmpresa,
   };
 }
@@ -4921,6 +4931,16 @@ function CosteEmpresa() {
   const [irpfActivo, setIrpfActivo] = useState(false);
   const [pctIRPF, setPctIRPF] = useState("");
 
+  // Gestoría: ¿hay firma de contrato en el primer mes?
+  // Por defecto SÍ (32€ primer mes = 6 alta + 26 nómina)
+  // Si se desactiva: primer mes = 26€ (solo nómina)
+  const [firmaContrato, setFirmaContrato] = useState(true);
+
+  // Importe exento por baja médica (no suma a base SS/IMEI/Solidaridad)
+  const [bajaActiva, setBajaActiva] = useState(false);
+  const [importeExento, setImporteExento] = useState(""); // string para input
+  const [mesesExentos, setMesesExentos] = useState({}); // { "2026-04": true, ... }
+
   // Modal exportar a Excel master
   const [mostrarExportMaster, setMostrarExportMaster] = useState(false);
   const [archivoMaster, setArchivoMaster] = useState(null);
@@ -4945,6 +4965,10 @@ function CosteEmpresa() {
         const value = localStorage.getItem(key);
         if (value === null) throw new Error("Not found");
         return { value };
+      },
+      set: async (key, value) => {
+        localStorage.setItem(key, value);
+        return { key, value };
       },
     };
   })();
@@ -5018,6 +5042,16 @@ function CosteEmpresa() {
 
   const cargarPerfil = (p) => {
     setPerfilCargado(p);
+
+    // Cargar configuración de coste empresa guardada con el perfil (si la hay)
+    const ce = p.datos?._costeEmpresa || {};
+    setIrpfActivo(!!ce.irpfActivo);
+    setPctIRPF(ce.pctIRPF != null ? String(ce.pctIRPF) : "");
+    setFirmaContrato(ce.firmaContrato !== undefined ? !!ce.firmaContrato : true); // default ON
+    setBajaActiva(!!ce.bajaActiva);
+    setImporteExento(ce.importeExento != null ? String(ce.importeExento) : "");
+    setMesesExentos(ce.mesesExentos || {});
+
     // Registrar log
     if (usuarioCtx) {
       const detalle = `[Coste Empresa] Cargado: ${p.nombre} (${p.tabId === "tab40" ? "40H" : "45H"})`;
@@ -5047,11 +5081,19 @@ function CosteEmpresa() {
     const complementos = d._calculado?.complementos45 || d.complementos45 || d.complementos || [];
     const esT40 = perfilCargado.tabId === "tab40";
     const pctIRPFNum = parseFloat(pctIRPF) || 0;
+    const importeExentoNum = parseFloat(importeExento) || 0;
 
     const filas = desglose.map((mes, i) => {
       const c = complementos[i] || {};
       const plusAct = esT40 ? 0 : (mes.plusAct || 0);
       const total = (mes.base40 || 0) + (mes.vac40 || 0) + (mes.indem40 || 0) + (mes.cobroHx || 0) + plusAct + (c.herramienta || 0) + (c.coche || 0) + (c.vivienda || 0) + (c.seguroVida || 0) + (c.comida || 0);
+
+      // Determinar si este mes tiene exención aplicada
+      const parsed = parseMesEspañol(mes.mes);
+      const claveMes = parsed ? `${parsed.year}-${String(parsed.month).padStart(2, "0")}` : null;
+      const aplicaExencion = bajaActiva && importeExentoNum > 0 && claveMes && mesesExentos[claveMes];
+      const exentoMes = aplicaExencion ? importeExentoNum : 0;
+
       const ce = calcularCosteEmpresaMes({
         total,
         vacaciones: mes.vac40 || 0,
@@ -5061,9 +5103,12 @@ function CosteEmpresa() {
         irpfActivo,
         pctIRPF: pctIRPFNum,
         esPrimerMes: i === 0,
+        importeExento: exentoMes,
+        firmaContrato,
       });
       return {
         mes: mes.mes,
+        claveMes,
         esCompleto: mes.esCompleto,
         desde: mes.desde,
         hasta: mes.hasta,
@@ -5094,6 +5139,7 @@ function CosteEmpresa() {
       seguroVida: acc.seguroVida + f.seguroVida,
       comida: acc.comida + f.comida,
       total: acc.total + f.total,
+      exento: acc.exento + (f.exento || 0),
       ssPrincipal: acc.ssPrincipal + f.ssPrincipal,
       ssVacaciones: acc.ssVacaciones + f.ssVacaciones,
       ssHorasExtra: acc.ssHorasExtra + f.ssHorasExtra,
@@ -5102,7 +5148,7 @@ function CosteEmpresa() {
       irpfVivienda: acc.irpfVivienda + f.irpfVivienda,
       gestoria: acc.gestoria + f.gestoria,
       totalCosteEmpresa: acc.totalCosteEmpresa + f.totalCosteEmpresa,
-    }), { base: 0, vac: 0, indem: 0, hx: 0, plusAct: 0, coche: 0, vivienda: 0, seguroVida: 0, comida: 0, total: 0, ssPrincipal: 0, ssVacaciones: 0, ssHorasExtra: 0, imei: 0, solidaridad: 0, irpfVivienda: 0, gestoria: 0, totalCosteEmpresa: 0 });
+    }), { base: 0, vac: 0, indem: 0, hx: 0, plusAct: 0, coche: 0, vivienda: 0, seguroVida: 0, comida: 0, total: 0, exento: 0, ssPrincipal: 0, ssVacaciones: 0, ssHorasExtra: 0, imei: 0, solidaridad: 0, irpfVivienda: 0, gestoria: 0, totalCosteEmpresa: 0 });
 
     return { filas, totales, totalBruto: totales.total };
   };
@@ -5135,41 +5181,46 @@ function CosteEmpresa() {
     lines.push([""].join(sep));
 
     lines.push(["LO QUE PERCIBE EL TRABAJADOR (mensual)"].join(sep));
-    lines.push(["Mes","Salario Base","Vacaciones","Indemnizacion","H.Extra EUR","Plus Actividad","Coche","Vivienda","Seguro Vida","Comida","TOTAL"].join(sep));
+    lines.push(["Mes","Salario Base","Vacaciones","Indemnizacion","H.Extra EUR","Plus Actividad","Coche","Vivienda","Seguro Vida","Comida","Exento","TOTAL"].join(sep));
     filas.forEach(f => {
       lines.push([
         f.mes + (f.esCompleto ? "" : ` (${f.desde}-${f.hasta})`),
         dec(f.base), dec(f.vac), dec(f.indem), dec(f.hx), dec(f.plusAct),
-        dec(f.coche), dec(f.vivienda), dec(f.seguroVida), dec(f.comida), dec(f.total),
+        dec(f.coche), dec(f.vivienda), dec(f.seguroVida), dec(f.comida), dec(f.exento || 0), dec(f.total),
       ].join(sep));
     });
     lines.push([
       "TOTAL", dec(totales.base), dec(totales.vac), dec(totales.indem), dec(totales.hx),
       dec(totales.plusAct), dec(totales.coche), dec(totales.vivienda),
-      dec(totales.seguroVida), dec(totales.comida), dec(totales.total)
+      dec(totales.seguroVida), dec(totales.comida), dec(totales.exento || 0), dec(totales.total)
     ].join(sep));
     lines.push([""].join(sep));
 
     lines.push(["COSTE EMPRESA (mensual)"].join(sep));
-    lines.push(["Mes","SS Principal (33,35%)","SS Vacaciones (33,35%)","SS H.Extra (27%)","IMEI (0,75%)","Solidaridad","IRPF Vivienda","Gestoria","TOTAL Coste Empresa"].join(sep));
+    lines.push(["Mes","SS Principal (33,35%)","SS Vacaciones (33,35%)","SS H.Extra (27%)","IMEI (0,75%)","Solidaridad","IRPF Vivienda","Gestoria","Exento aplicado","TOTAL Coste Empresa"].join(sep));
     filas.forEach(f => {
       lines.push([
         f.mes + (f.esCompleto ? "" : ` (${f.desde}-${f.hasta})`),
         dec(f.ssPrincipal), dec(f.ssVacaciones), dec(f.ssHorasExtra),
         dec(f.imei), dec(f.solidaridad), dec(f.irpfVivienda),
-        dec(f.gestoria), dec(f.totalCosteEmpresa),
+        dec(f.gestoria), dec(f.exento || 0), dec(f.totalCosteEmpresa),
       ].join(sep));
     });
     lines.push([
       "TOTAL", dec(totales.ssPrincipal), dec(totales.ssVacaciones), dec(totales.ssHorasExtra),
       dec(totales.imei), dec(totales.solidaridad), dec(totales.irpfVivienda),
-      dec(totales.gestoria), dec(totales.totalCosteEmpresa),
+      dec(totales.gestoria), dec(totales.exento || 0), dec(totales.totalCosteEmpresa),
     ].join(sep));
     lines.push([""].join(sep));
 
     lines.push(["RESUMEN"].join(sep));
     lines.push(["Bruto trabajador", dec(totales.total) + " EUR"].join(sep));
     lines.push(["Coste empresa", dec(totales.totalCosteEmpresa) + " EUR"].join(sep));
+    if (bajaActiva && (parseFloat(importeExento) || 0) > 0) {
+      lines.push(["Importe exento mensual", dec(parseFloat(importeExento) || 0) + " EUR"].join(sep));
+      lines.push(["Total exento aplicado", dec(totales.exento || 0) + " EUR"].join(sep));
+    }
+    lines.push(["Firma de contrato", firmaContrato ? "SI" : "NO"].join(sep));
     lines.push(["Coste total", dec(totales.total + totales.totalCosteEmpresa) + " EUR"].join(sep));
     const pct = totales.total > 0 ? (totales.totalCosteEmpresa / totales.total * 100) : 0;
     lines.push(["% s/salario", pct.toFixed(2).replace(".", ",") + " %"].join(sep));
@@ -5216,6 +5267,7 @@ function CosteEmpresa() {
         <td class="n ${f.vivienda === 0 ? 'z' : 'g'}">${f.vivienda === 0 ? "—" : fmt(f.vivienda)}</td>
         <td class="n ${f.seguroVida === 0 ? 'z' : 'g'}">${f.seguroVida === 0 ? "—" : fmt(f.seguroVida)}</td>
         <td class="n ${f.comida === 0 ? 'z' : 'g'}">${f.comida === 0 ? "—" : fmt(f.comida)}</td>
+        <td class="n ${(f.exento || 0) === 0 ? 'z' : 'red'}"><b>${(f.exento || 0) === 0 ? "—" : "-" + fmt(f.exento)}</b></td>
         <td class="n gold"><b>${fmt(f.total)}</b></td>
       </tr>
     `).join("");
@@ -5230,6 +5282,7 @@ function CosteEmpresa() {
         <td class="n ${f.solidaridad === 0 ? 'z' : 'p'}">${f.solidaridad === 0 ? "—" : fmt(f.solidaridad)}</td>
         <td class="n ${f.irpfVivienda === 0 ? 'z' : 'o'}">${f.irpfVivienda === 0 ? "—" : fmt(f.irpfVivienda)}</td>
         <td class="n g">${fmt(f.gestoria)}</td>
+        <td class="n ${(f.exento || 0) === 0 ? 'z' : 'red'}">${(f.exento || 0) === 0 ? "—" : "-" + fmt(f.exento)}</td>
         <td class="n red"><b>${fmt(f.totalCosteEmpresa)}</b></td>
       </tr>
     `).join("");
@@ -5347,6 +5400,7 @@ function CosteEmpresa() {
         <th>Vivienda</th>
         <th>Seguro V.</th>
         <th>Comida</th>
+        <th class="red">Exento</th>
         <th class="gold">TOTAL</th>
       </tr>
     </thead>
@@ -5363,6 +5417,7 @@ function CosteEmpresa() {
         <td class="n g">${fmt(totales.vivienda)}</td>
         <td class="n g">${fmt(totales.seguroVida)}</td>
         <td class="n g">${fmt(totales.comida)}</td>
+        <td class="n red">${(totales.exento || 0) === 0 ? "—" : "-" + fmt(totales.exento)}</td>
         <td class="n gold">${fmt(totales.total)}</td>
       </tr>
     </tbody>
@@ -5382,6 +5437,7 @@ function CosteEmpresa() {
         <th>Solidaridad</th>
         <th>IRPF Viv<span class="pct">${irpfActivo && pctIRPFNum > 0 ? pctIRPFNum + "%" : "—"}</span></th>
         <th>Gestoría</th>
+        <th class="red">Exento</th>
         <th class="red">TOTAL</th>
       </tr>
     </thead>
@@ -5396,6 +5452,7 @@ function CosteEmpresa() {
         <td class="n p">${totales.solidaridad === 0 ? "—" : fmt(totales.solidaridad)}</td>
         <td class="n o">${totales.irpfVivienda === 0 ? "—" : fmt(totales.irpfVivienda)}</td>
         <td class="n g">${fmt(totales.gestoria)}</td>
+        <td class="n red">${(totales.exento || 0) === 0 ? "—" : "-" + fmt(totales.exento)}</td>
         <td class="n red">${fmt(totales.totalCosteEmpresa)}</td>
       </tr>
     </tbody>
@@ -5449,6 +5506,43 @@ function CosteEmpresa() {
 
     if (usuarioCtx) {
       try { registrarLog(usuarioCtx.nombre, "export_pdf", `[Coste Empresa] ${generarFilename()}.html · ${d.nombre || "—"}`); } catch {}
+    }
+  };
+
+  // ─── Guardar configuración Coste Empresa en el perfil cargado ───
+  const guardarConfigCosteEmpresa = async () => {
+    if (!perfilCargado) { alert("Carga un perfil primero"); return; }
+    try {
+      // Recuperar el perfil del storage, actualizar _costeEmpresa, y volver a guardar
+      const key = perfilCargado.key;
+      const item = await storage.get(key);
+      if (!item || !item.value) { alert("No se pudo leer el perfil"); return; }
+      const data = JSON.parse(item.value);
+      data.datos = data.datos || {};
+      data.datos._costeEmpresa = {
+        irpfActivo,
+        pctIRPF: parseFloat(pctIRPF) || 0,
+        firmaContrato,
+        bajaActiva,
+        importeExento: parseFloat(importeExento) || 0,
+        mesesExentos,
+        guardadoEl: new Date().toISOString(),
+        guardadoPor: usuarioCtx?.nombre || null,
+      };
+      // Guardar de vuelta
+      if (storage.set) {
+        await storage.set(key, JSON.stringify(data));
+      } else {
+        localStorage.setItem(key, JSON.stringify(data));
+      }
+      // Actualizar el perfilCargado en memoria
+      setPerfilCargado({ ...perfilCargado, datos: data.datos });
+      alert("✓ Configuración guardada en el perfil");
+      if (usuarioCtx) {
+        try { registrarLog(usuarioCtx.nombre, "guardar_config_coste_empresa", `[Coste Empresa] ${data.nombre || "—"}`); } catch {}
+      }
+    } catch (e) {
+      alert("Error al guardar: " + e.message);
     }
   };
 
@@ -5663,6 +5757,13 @@ function CosteEmpresa() {
               📋 Excel Master
             </button>
             <button
+              onClick={guardarConfigCosteEmpresa}
+              style={{ background: "transparent", color: "#3a6898", border: "1px solid #3a6898", padding: "6px 12px", borderRadius: 4, fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", fontFamily: "'Courier New',monospace" }}
+              title="Guardar la configuración actual (IRPF, firma, baja) en el perfil"
+            >
+              💾 Guardar Config
+            </button>
+            <button
               onClick={() => setPerfilCargado(null)}
               style={{ background: "transparent", color: "#aaa", border: "1px solid #555", padding: "6px 12px", borderRadius: 4, fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", fontFamily: "'Courier New',monospace" }}
             >
@@ -5721,6 +5822,96 @@ function CosteEmpresa() {
               </div>
             )}
           </div>
+
+          {/* Toggle Firma de Contrato (afecta gestoría del primer mes) */}
+          <div style={{ background: "#f0f5ee", border: "1px solid #c8d8b8", borderRadius: 6, padding: "10px 14px", marginTop: 8, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", flex: "0 0 auto" }}>
+              <span style={{ position: "relative", display: "inline-block", width: 38, height: 20, background: firmaContrato ? "#2a6e2a" : "#bbb", borderRadius: 10, transition: "background 0.15s" }}>
+                <span style={{ position: "absolute", top: 2, left: firmaContrato ? 20 : 2, width: 16, height: 16, background: "#fff", borderRadius: "50%", transition: "left 0.15s" }} />
+              </span>
+              <input type="checkbox" checked={firmaContrato} onChange={e => setFirmaContrato(e.target.checked)} style={{ display: "none" }} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#555", letterSpacing: "0.05em" }}>
+                Firma de contrato en primer mes
+              </span>
+            </label>
+            <div style={{ fontSize: 9.5, color: "#666", marginLeft: "auto", fontStyle: "italic" }}>
+              {firmaContrato ? "Primer mes: 32 € (6 alta + 26 nómina)" : "Primer mes: 26 € (sólo nómina)"}
+            </div>
+          </div>
+
+          {/* Toggle Baja médica (importe exento de SS/IMEI/Solidaridad) */}
+          <div style={{ background: "#f5eeee", border: "1px solid #d8c0c0", borderRadius: 6, padding: "10px 14px", marginTop: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", flex: "0 0 auto" }}>
+                <span style={{ position: "relative", display: "inline-block", width: 38, height: 20, background: bajaActiva ? "#a04545" : "#bbb", borderRadius: 10, transition: "background 0.15s" }}>
+                  <span style={{ position: "absolute", top: 2, left: bajaActiva ? 20 : 2, width: 16, height: 16, background: "#fff", borderRadius: "50%", transition: "left 0.15s" }} />
+                </span>
+                <input type="checkbox" checked={bajaActiva} onChange={e => setBajaActiva(e.target.checked)} style={{ display: "none" }} />
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#555", letterSpacing: "0.05em" }}>
+                  Hay baja médica (importe exento de SS)
+                </span>
+              </label>
+              {bajaActiva && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
+                  <label style={{ fontSize: 9, color: "#666", textTransform: "uppercase", letterSpacing: "0.1em" }}>Importe mensual exento:</label>
+                  <input
+                    type="text"
+                    value={importeExento}
+                    onChange={e => {
+                      const v = e.target.value.replace(",", ".");
+                      if (v === "" || /^\d*\.?\d*$/.test(v)) setImporteExento(v);
+                    }}
+                    placeholder="ej: 600"
+                    style={{ width: 80, padding: "5px 8px", border: "1px solid #c0bcb5", borderRadius: 4, fontFamily: "'Courier New',monospace", fontSize: 11, fontWeight: 700, textAlign: "right" }}
+                  />
+                  <span style={{ fontSize: 11, color: "#666", fontWeight: 700 }}>€</span>
+                </div>
+              )}
+            </div>
+
+            {/* Casillas mes a mes — se renderizan después porque dependen del desglose del perfil cargado */}
+            {bajaActiva && (() => {
+              const desgloseTmp = perfilCargado?.datos?._calculado?.desglose45 || perfilCargado?.datos?.desglose45 || perfilCargado?.datos?.desglose || [];
+              if (desgloseTmp.length === 0) return null;
+              return (
+                <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed #d8c0c0" }}>
+                  <div style={{ fontSize: 9, color: "#666", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8, fontWeight: 700 }}>
+                    Aplicar exención en estos meses:
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {desgloseTmp.map((mes, i) => {
+                      const parsed = parseMesEspañol(mes.mes);
+                      const clave = parsed ? `${parsed.year}-${String(parsed.month).padStart(2, "0")}` : `idx-${i}`;
+                      const activo = !!mesesExentos[clave];
+                      return (
+                        <label key={clave} style={{
+                          display: "inline-flex", alignItems: "center", gap: 5,
+                          padding: "5px 10px", borderRadius: 4, cursor: "pointer",
+                          background: activo ? "#a04545" : "#fff",
+                          color: activo ? "#fff" : "#555",
+                          border: `1px solid ${activo ? "#a04545" : "#d0ccc6"}`,
+                          fontSize: 10, fontWeight: 700, letterSpacing: "0.05em",
+                          textTransform: "capitalize",
+                          transition: "all 0.15s",
+                        }}>
+                          <input
+                            type="checkbox"
+                            checked={activo}
+                            onChange={e => setMesesExentos(prev => ({ ...prev, [clave]: e.target.checked }))}
+                            style={{ display: "none" }}
+                          />
+                          {activo ? "✓ " : ""}{mes.mes}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 9, color: "#7a2020", fontStyle: "italic" }}>
+                    El importe exento se restará de las bases de SS Principal, IMEI y Cuota Solidaridad en los meses marcados.
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
         </div>
 
         {/* Tabla mensual "Lo que percibe el trabajador" */}
@@ -5739,8 +5930,8 @@ function CosteEmpresa() {
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10.5 }}>
                 <thead>
                   <tr style={{ background: "#f0ede8" }}>
-                    {["Mes", "Salario Base", "Vacaciones", "Indemnización", "H.Extra €", "Plus Act.", "Coche", "Vivienda", "Seguro Vida", "Comida", "TOTAL"].map(h => (
-                      <th key={h} style={{ padding: "8px 6px", fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700, textAlign: h === "Mes" ? "left" : "right", color: h === "TOTAL" ? "#b8864a" : "#666", borderBottom: "1px solid #d0ccc6", whiteSpace: "nowrap" }}>{h}</th>
+                    {["Mes", "Salario Base", "Vacaciones", "Indemnización", "H.Extra €", "Plus Act.", "Coche", "Vivienda", "Seguro Vida", "Comida", "Exento", "TOTAL"].map(h => (
+                      <th key={h} style={{ padding: "8px 6px", fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700, textAlign: h === "Mes" ? "left" : "right", color: h === "TOTAL" ? "#b8864a" : (h === "Exento" ? "#a04545" : "#666"), borderBottom: "1px solid #d0ccc6", whiteSpace: "nowrap" }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -5749,6 +5940,14 @@ function CosteEmpresa() {
                     const c = complementosGuardado[i] || {};
                     const plusAct = esTab40 ? 0 : (mes.plusAct || 0);
                     const totalMes = (mes.base40 || 0) + (mes.vac40 || 0) + (mes.indem40 || 0) + (mes.cobroHx || 0) + plusAct + (c.herramienta || 0) + (c.coche || 0) + (c.vivienda || 0) + (c.seguroVida || 0) + (c.comida || 0);
+
+                    // Exención del mes
+                    const parsed = parseMesEspañol(mes.mes);
+                    const claveMes = parsed ? `${parsed.year}-${String(parsed.month).padStart(2, "0")}` : null;
+                    const importeExentoNum = parseFloat(importeExento) || 0;
+                    const aplicaExencion = bajaActiva && importeExentoNum > 0 && claveMes && mesesExentos[claveMes];
+                    const exentoMes = aplicaExencion ? importeExentoNum : 0;
+
                     return (
                       <tr key={i} style={{ borderBottom: "1px solid #eae7e2" }}>
                         <td style={{ padding: "7px 6px", fontWeight: 600, textTransform: "capitalize" }}>
@@ -5763,6 +5962,7 @@ function CosteEmpresa() {
                         <td style={{ padding: "7px 6px", textAlign: "right", color: (c.vivienda || 0) === 0 ? "#bbb" : "#5a8a5a" }}>{(c.vivienda || 0) === 0 ? "—" : fmt(c.vivienda)}</td>
                         <td style={{ padding: "7px 6px", textAlign: "right", color: (c.seguroVida || 0) === 0 ? "#bbb" : "#5a8a5a" }}>{(c.seguroVida || 0) === 0 ? "—" : fmt(c.seguroVida)}</td>
                         <td style={{ padding: "7px 6px", textAlign: "right", color: (c.comida || 0) === 0 ? "#bbb" : "#5a8a5a" }}>{(c.comida || 0) === 0 ? "—" : fmt(c.comida)}</td>
+                        <td style={{ padding: "7px 6px", textAlign: "right", color: exentoMes === 0 ? "#bbb" : "#a04545", fontWeight: exentoMes > 0 ? 700 : 400 }}>{exentoMes === 0 ? "—" : `-${fmt(exentoMes)}`}</td>
                         <td style={{ padding: "7px 6px", textAlign: "right", fontWeight: 700, color: "#b8864a" }}>{fmt(totalMes)}</td>
                       </tr>
                     );
@@ -5776,11 +5976,19 @@ function CosteEmpresa() {
         {/* ════════ TABLA COSTE EMPRESA ════════ */}
         {desgloseGuardado.length > 0 && (() => {
           const pctIRPFNum = parseFloat(pctIRPF) || 0;
+          const importeExentoNum = parseFloat(importeExento) || 0;
           // Calcular coste empresa para cada mes
           const filas = desgloseGuardado.map((mes, i) => {
             const c = complementosGuardado[i] || {};
             const plusAct = esTab40 ? 0 : (mes.plusAct || 0);
             const total = (mes.base40 || 0) + (mes.vac40 || 0) + (mes.indem40 || 0) + (mes.cobroHx || 0) + plusAct + (c.herramienta || 0) + (c.coche || 0) + (c.vivienda || 0) + (c.seguroVida || 0) + (c.comida || 0);
+
+            // Exención mes a mes
+            const parsed = parseMesEspañol(mes.mes);
+            const claveMes = parsed ? `${parsed.year}-${String(parsed.month).padStart(2, "0")}` : null;
+            const aplicaExencion = bajaActiva && importeExentoNum > 0 && claveMes && mesesExentos[claveMes];
+            const exentoMes = aplicaExencion ? importeExentoNum : 0;
+
             const ce = calcularCosteEmpresaMes({
               total,
               vacaciones: mes.vac40 || 0,
@@ -5790,8 +5998,10 @@ function CosteEmpresa() {
               irpfActivo,
               pctIRPF: pctIRPFNum,
               esPrimerMes: i === 0,
+              importeExento: exentoMes,
+              firmaContrato,
             });
-            return { mes: mes.mes, ...ce, total };
+            return { mes: mes.mes, claveMes, ...ce, total };
           });
 
           // Totales
@@ -5803,8 +6013,9 @@ function CosteEmpresa() {
             solidaridad: acc.solidaridad + f.solidaridad,
             irpfVivienda: acc.irpfVivienda + f.irpfVivienda,
             gestoria: acc.gestoria + f.gestoria,
+            exento: acc.exento + (f.exento || 0),
             totalCosteEmpresa: acc.totalCosteEmpresa + f.totalCosteEmpresa,
-          }), { ssPrincipal: 0, ssVacaciones: 0, ssHorasExtra: 0, imei: 0, solidaridad: 0, irpfVivienda: 0, gestoria: 0, totalCosteEmpresa: 0 });
+          }), { ssPrincipal: 0, ssVacaciones: 0, ssHorasExtra: 0, imei: 0, solidaridad: 0, irpfVivienda: 0, gestoria: 0, exento: 0, totalCosteEmpresa: 0 });
 
           const cellNum = (v, color) => (
             <td style={{ padding: "7px 5px", textAlign: "right", color: v === 0 ? "#ccc" : (color || "#1a1a1a"), fontFamily: "'Courier New',monospace" }}>
@@ -6107,7 +6318,7 @@ function BannerSesion({ usuario, onLogout, onAdmin, onLogs, onPuestos, tab, onCh
         <span style={{ color: "#888", textTransform: "uppercase", fontSize: 9, letterSpacing: "0.18em" }}>Sesión:</span>
         <span style={{ fontWeight: 700, color: "#f0ede8" }}>{usuario.nombre}</span>
         {usuario.es_admin && <span style={{ background: "#c8a96e", color: "#1a1a1a", padding: "2px 6px", borderRadius: 3, fontSize: 8, fontWeight: 700, letterSpacing: "0.1em" }}>ADMIN</span>}
-        <span style={{ color: "#ffffff", fontSize: 13, letterSpacing: "0.08em", fontWeight: 700, marginLeft: 6 }} title="Versión de la app">v40</span>
+        <span style={{ color: "#ffffff", fontSize: 13, letterSpacing: "0.08em", fontWeight: 700, marginLeft: 6 }} title="Versión de la app">v41</span>
       </div>
 
       {/* Pestañas centrales */}
